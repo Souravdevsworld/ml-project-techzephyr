@@ -4,6 +4,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'local-storage-windows.ps1')
 $UiPython = Join-Path $ProjectRoot '.venv-ui\Scripts\python.exe'
 $MlPython = Join-Path $ProjectRoot '.venv-ml\Scripts\python.exe'
 $TripoDirectory = Join-Path $ProjectRoot 'work\TripoSR'

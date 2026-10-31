@@ -5,6 +5,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'local-storage-windows.ps1')
 function Invoke-Checked {
     param([string]$Program, [string[]]$CommandArguments)
     & $Program @CommandArguments
@@ -22,15 +23,15 @@ try {
     }
     $UiPython = (Resolve-Path '.venv-ui\Scripts\python.exe').Path
     $MlPython = (Resolve-Path '.venv-ml\Scripts\python.exe').Path
-    Invoke-Checked -Program $UiPython -CommandArguments @('-m', 'pip', 'install', '-r', 'requirements.txt')
+    Invoke-Checked -Program $UiPython -CommandArguments @('-m', 'pip', 'install', '--no-cache-dir', '-r', 'requirements.txt')
     & $MlPython -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('torch') else 1)"
     if ($LASTEXITCODE -ne 0) {
         $TorchIndex = if ($Device -eq 'cuda') { 'https://download.pytorch.org/whl/cu128' } else { 'https://download.pytorch.org/whl/cpu' }
-        Invoke-Checked -Program $MlPython -CommandArguments @('-m', 'pip', 'install', 'torch==2.11.0', '--index-url', $TorchIndex)
+        Invoke-Checked -Program $MlPython -CommandArguments @('-m', 'pip', 'install', '--no-cache-dir', 'torch==2.11.0', '--index-url', $TorchIndex)
     } else {
         Write-Host 'Keeping the installed worker PyTorch; the device check below must pass.'
     }
-    Invoke-Checked -Program $MlPython -CommandArguments @('-m', 'pip', 'install', '-r', 'backend/requirements-local.txt')
+    Invoke-Checked -Program $MlPython -CommandArguments @('-m', 'pip', 'install', '--no-cache-dir', '-r', 'backend/requirements-local.txt')
     New-Item -ItemType Directory -Force -Path 'work' | Out-Null
     if (-not (Test-Path 'work\TripoSR')) {
         Invoke-Checked -Program 'git' -CommandArguments @('clone', 'https://github.com/VAST-AI-Research/TripoSR.git', 'work/TripoSR')

@@ -16,6 +16,41 @@ git switch --detach origin/codex/sketch2shape-app
 
 If Git reports local modifications, stop and preserve them before switching. Do not reset or clean the directory. The original `ml-project-techzephyr` checkout and its saved development work are separate from this preview worktree.
 
+## Use D: when C: has no space
+
+The CUDA PyTorch wheel is roughly 2.8 GB before installation. Its extracted files, temporary downloads and neural model weights require additional space. Allow roughly 20 GB or more free space on the destination drive; actual use varies.
+
+Clone the branch directly onto D: without moving existing checkouts or copying virtual environments:
+
+```powershell
+git clone --single-branch --branch codex/sketch2shape-app https://github.com/Souravdevsworld/ml-project-techzephyr.git D:\Sketch2Shape
+cd D:\Sketch2Shape
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-local-windows.ps1 -Device cuda -Launch
+```
+
+Use a new empty destination path if `D:\Sketch2Shape` already exists. This clone has its own Git metadata on D: and does not depend on the original C: repository.
+
+The setup and start scripts automatically configure process-local storage before Python starts:
+
+| Content | Directory within the selected checkout |
+|---|---|
+| Python virtual environments | `.venv-ui`, `.venv-ml` |
+| Temporary downloads and inference files | `work/tmp` |
+| Hugging Face / Transformers model weights | `work/cache/huggingface` |
+| Torch, rembg, Numba and Gradio caches | `work/cache/` subdirectories |
+| Generated images and meshes | `outputs/jobs` |
+
+Scripted pip installations use `--no-cache-dir` to avoid retaining an extra wheel copy. The same cache/temp configuration is applied on later starts, so a new PowerShell session does not send these downloads back to C:. This is process-local configuration, not a permanent change to your Windows user settings.
+
+Later starts on D: use:
+
+```powershell
+cd D:\Sketch2Shape
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-windows.ps1 -Device cuda
+```
+
+The scripts do not remove any existing C: caches, downloaded files, virtual environments or personal data. If C: still needs space for normal Windows operation, use Windows Storage/Temporary files cleanup separately.
+
 ## Recommended attempt: use the existing RTX 2050
 
 From the updated preview directory:

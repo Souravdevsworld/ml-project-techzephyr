@@ -48,3 +48,7 @@ The user supplied an RTX 2050 diagnostic showing 4 GB VRAM and reported 8 GB sys
 - Added Windows setup/start scripts that keep ML packages separate from Gradio and preserve existing ML PyTorch/checkouts.
 - Added device/offload/error-routing tests and actual CPU marching-cubes tests. These use synthetic fields only as explicit tests; no geometry fallback was added to production.
 - Full pretrained inference and RTX 2050/Windows acceptance remain unverified. Eight GB system RAM may still be insufficient.
+
+## Project-drive storage follow-up
+
+After a Windows CUDA-wheel download failed with `ENOSPC` on C:, both Windows helpers now source `scripts/local-storage-windows.ps1` before invoking Python. Temporary files and pip/model/Gradio/rembg caches are directed to ignored `work/` folders beside the checkout. Scripted installs disable pip's retained wheel cache. A D: checkout therefore keeps these large files on D:, including on later launches; no original checkout, existing cache or user data is deleted. PowerShell execution remains unverified on Windows in this Linux environment.
