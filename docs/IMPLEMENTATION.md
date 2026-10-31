@@ -10,7 +10,7 @@ Work branch: `codex/sketch2shape-app`, created from the clean initial checkout (
 - `mac-sketch-integration` (`537d7499ed52282f98b739b5c45523e45235f6c6`) and `sketch-milestone-b` (`9ae079b7adc8983b341b0e5db3275358b60f455b`): alternate SF3D/Mac and silhouette experiments, not the requested CUDA Scribble→TripoSR pipeline. Inspected without replacing the tested Sourav backend.
 - No `backend/pipeline.py` or `backend/sketch_worker.py` existed in the requested development branch snapshots. No Kaggle-specific Python 3.13 runtime adaptation was found in them.
 
-The existing app routed drawings directly to `generate_3d`, consumed only editor composites, lacked refinement artifacts/settings, and retained prior successful geometry after failure. The refiner required nonempty text and checked exact ML dependency metadata. The TripoSR generator and validator already supported real GLB export and conservative validation and were preserved unchanged.
+The existing app routed drawings directly to `generate_3d`, consumed only editor composites, lacked refinement artifacts/settings, and retained prior successful geometry after failure. The refiner required nonempty text and checked exact ML dependency metadata. The TripoSR generator and validator already supported real GLB export and conservative validation were preserved in the initial integration. The later local-runtime update extends the generator command with device/meshing selection; its public signature and validation behavior remain intact.
 
 ## Changed existing files
 
@@ -37,3 +37,14 @@ The existing app routed drawings directly to `generate_3d`, consumed only editor
 The UI and workers share one host and disk. Current Gradio's Hub dependency conflicts with the tested diffusion Hub version, so ML interpreters are configured separately. No environment variables are mutated globally to apply a user's settings. Each worker gets its own environment copy. Stage two begins only after stage one's process exits. The pipeline lock also serializes callers outside the Gradio queue in this process.
 
 Worker logs remain local for debugging. Failed output is never returned to the UI, including after an earlier successful run. Intermediate images remain available on disk for diagnosis. Python imports and offline tests do not initialize or download model weights. The application has no mock/fallback model-generation path.
+
+## Local-runtime follow-up
+
+The user supplied an RTX 2050 diagnostic showing 4 GB VRAM and reported 8 GB system RAM. Their refinement traceback showed `ModuleNotFoundError: No module named torch` in the UI interpreter, before any GPU/model work.
+
+- Added explicit CPU/CUDA/automatic device selection, FP32 CPU refinement and optional sequential CUDA offload. Compatible CPU/other CUDA torch wheels are no longer rejected for lacking the original `+cu128` suffix. Other pinned package checks remain.
+- Added low-memory UI/CLI defaults, smaller reconstruction chunks and longer explicit CPU/low-memory timeouts. Worker errors now classify common failures and identify the job log.
+- Added optional real scikit-image extraction of the TripoSR density field through an isolated runner. The upstream neural model and vertex-color reconstruction remain in use; installed native torchmcubes is still used by automatic selection when available. The replacement helper returns normalized XYZ positions from the same ij-indexed density grid.
+- Added Windows setup/start scripts that keep ML packages separate from Gradio and preserve existing ML PyTorch/checkouts.
+- Added device/offload/error-routing tests and actual CPU marching-cubes tests. These use synthetic fields only as explicit tests; no geometry fallback was added to production.
+- Full pretrained inference and RTX 2050/Windows acceptance remain unverified. Eight GB system RAM may still be insufficient.

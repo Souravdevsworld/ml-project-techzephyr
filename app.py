@@ -1,4 +1,4 @@
-"""Sketch2Shape AI Gradio interface; inference runs in isolated local GPU workers."""
+"""Sketch2Shape AI Gradio interface; inference runs in isolated local workers."""
 from __future__ import annotations
 
 import argparse
@@ -16,6 +16,7 @@ from PIL import Image
 from backend.pipeline import GenerationSettings, generate_result
 from backend.ui_adapter import as_rgb, save_input, validate_content
 from backend.validate_mesh import validate_mesh
+from backend.device import low_memory, requested_device
 
 logger = logging.getLogger(__name__)
 ASSETS = Path(__file__).resolve().parent / "assets"
@@ -53,7 +54,7 @@ def pending_prompt(prompt, session):
 
 def submit_request(sketch, upload, source, prompt, session, mode="Sketch to 3D",
                    seed=42, steps=20, cfg=7.0, strength=1.0, resolution=128,
-                   remove_bg=True, regenerate=False):
+                   remove_bg=True, device="auto", small_memory=False, regenerate=False):
     """Snapshot pixels and settings before queueing; clear all previous results."""
     with SESSION_LOCK:
         if session["active"] is not None:
@@ -62,7 +63,7 @@ def submit_request(sketch, upload, source, prompt, session, mode="Sketch to 3D",
         try:
             if mode not in {"Sketch to 3D", "Image to 3D"}:
                 raise ValueError("Choose a generation mode.")
-            settings = GenerationSettings(seed, steps, cfg, strength, resolution, remove_bg)
+            settings = GenerationSettings(seed, steps, cfg, strength, resolution, remove_bg, device, small_memory)
             settings.validate()
             value = session["original"] if regenerate else (upload if mode == "Image to 3D" or source == "Upload" else sketch)
             if regenerate and value is None:
@@ -94,9 +95,10 @@ def submit_request(sketch, upload, source, prompt, session, mode="Sketch to 3D",
                 "No pending prompt edit.", *((None,) * ARTIFACT_COUNT))
 
 
-def submit_regeneration(prompt, session, mode, seed, steps, cfg, strength, resolution, remove_bg):
+def submit_regeneration(prompt, session, mode, seed, steps, cfg, strength, resolution, remove_bg,
+                        device="auto", small_memory=False):
     return submit_request(None, None, None, prompt, session, mode, seed, steps, cfg,
-                          strength, resolution, remove_bg, regenerate=True)
+                          strength, resolution, remove_bg, device, small_memory, regenerate=True)
 
 
 def run_request(session, progress=gr.Progress()):
@@ -157,8 +159,8 @@ def upload_preview(value):
 def inference_status():
     triposr = os.environ.get("TRIPOSR_DIR", "")
     if not triposr or not (Path(triposr).expanduser() / "run.py").is_file():
-        return "**Inference setup needed** · Set TRIPOSR_DIR to an installed TripoSR checkout on this GPU host. The drawing interface is available."
-    return "**TripoSR checkout configured** · GPU, package and model availability are checked by the workers when you generate."
+        return "**Inference setup needed** · Install the ML worker environment and set TRIPOSR_DIR to an installed TripoSR checkout on this machine. The drawing interface is available."
+    return "**TripoSR checkout configured** · Workers check the selected device, packages and models when you generate. CPU is slower and needs substantial system RAM."
 
 
 CSS = """
@@ -176,6 +178,7 @@ footer { display: none !important; }
 
 
 def build_app():
+    small = low_memory()
     with gr.Blocks(title="Sketch2Shape AI", analytics_enabled=False) as demo:
         session = gr.State(new_session)
         gr.HTML('''<section id="hero" class="shader-hero"><div data-shader-root aria-hidden="true"></div>
@@ -211,12 +214,15 @@ def build_app():
                 gr.Markdown("For sketches, describe the object to improve refinement. TripoSR uses the image alone.")
                 with gr.Accordion("Advanced settings", open=False):
                     seed = gr.Number(value=42, precision=0, minimum=0, maximum=2**32-1, label="Random seed")
-                    steps = gr.Slider(1, 100, value=20, step=1, label="Diffusion steps · sketch mode")
+                    device = gr.Dropdown(["auto", "cuda", "cpu"], value=requested_device(), label="Execution device · auto prefers CUDA")
+                    small_memory = gr.Checkbox(value=small, label="Use less GPU memory · slower")
+                    gr.Markdown("On a 4 GB GPU, enable this option and start with mesh resolution 64. CPU runs without a GPU but may not fit in 8 GB system RAM.")
+                    steps = gr.Slider(1, 100, value=12 if small else 20, step=1, label="Diffusion steps · sketch mode")
                     cfg = gr.Slider(1, 20, value=7, step=0.5, label="CFG guidance · sketch mode")
                     strength = gr.Slider(0.1, 2, value=1, step=0.1, label="ControlNet strength · sketch mode")
-                    resolution = gr.Slider(16, 512, value=128, step=16, label="TripoSR mesh resolution")
+                    resolution = gr.Slider(16, 512, value=64 if small else 128, step=16, label="TripoSR mesh resolution")
                     remove_bg = gr.Checkbox(value=True, label="Remove image background before reconstruction")
-                    gr.Markdown("Higher resolution uses more GPU memory. Start at 128 on a T4.")
+                    gr.Markdown("Higher resolution uses more memory and may improve geometry detail. Both AI stages still require their model weights and ML packages.")
                 pending = gr.Markdown("No pending prompt edit.")
                 generate_button = gr.Button("Generate 3D Model", variant="primary", elem_id="generate")
                 regenerate_button = gr.Button("Regenerate with current settings", interactive=False)
@@ -250,7 +256,7 @@ def build_app():
         output_artifacts = [viewer, download, original, cleaned, conditioning, refined, artifacts]
         admission_outputs = [session, status, generate_button, regenerate_button, pending, *output_artifacts]
         result_outputs = [*output_artifacts, status, generate_button, regenerate_button]
-        advanced = [mode, seed, steps, cfg, strength, resolution, remove_bg]
+        advanced = [mode, seed, steps, cfg, strength, resolution, remove_bg, device, small_memory]
         for event in (
             generate_button.click(submit_request, [sketch, upload, source, prompt, session, *advanced], admission_outputs, queue=False, trigger_mode="once"),
             regenerate_button.click(submit_regeneration, [prompt, session, *advanced], admission_outputs, queue=False, trigger_mode="once"),
@@ -263,7 +269,13 @@ def main():
     parser = argparse.ArgumentParser(description="Sketch2Shape AI web application")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7860)
+    parser.add_argument("--device", choices=["auto", "cuda", "cpu"], help="Initial device selection; auto prefers CUDA when available")
+    parser.add_argument("--low-memory", action="store_true", help="Start with sequential offload, 12 diffusion steps and mesh resolution 64")
     args = parser.parse_args()
+    if args.device:
+        os.environ["SKETCH2SHAPE_DEVICE"] = args.device
+    if args.low_memory:
+        os.environ["SKETCH2SHAPE_LOW_MEMORY"] = "true"
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     from backend.process import stop_workers
     def terminate(signum, frame):

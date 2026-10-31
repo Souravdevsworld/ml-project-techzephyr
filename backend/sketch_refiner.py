@@ -12,6 +12,7 @@ import time
 from PIL import Image
 
 from .sketch_preprocess import preprocess_sketch
+from .device import low_memory, select_device
 
 logger = logging.getLogger(__name__)
 CONTROLNET_MODEL = "lllyasviel/control_v11p_sd15_scribble"
@@ -38,10 +39,21 @@ def check_refinement_environment() -> dict[str, str]:
         except metadata.PackageNotFoundError:
             actual = "missing"
         versions[package] = actual
-        if actual != expected:
+        if package == "torch":
+            # CPU and other CUDA wheels must not be rejected for lacking +cu128.
+            try:
+                major, minor = (int(part) for part in actual.split("+")[0].split(".")[:2])
+                compatible = major == 2 and minor >= 1
+            except ValueError:
+                compatible = False
+            if not compatible:
+                problems.append(f"torch: need a PyTorch 2.x build >=2.1, found {actual}")
+            elif actual != expected:
+                logger.info("Using torch %s; original GPU experiment used %s", actual, expected)
+        elif actual != expected:
             problems.append(f"{package}: expected {expected}, found {actual}")
     if problems:
-        raise RefinementError("Incompatible sketch environment; use the separate experiment notebook. "
+        raise RefinementError("Incompatible sketch environment; install the worker requirements and run backend.doctor. "
                               "No automatic upgrades were attempted. " + "; ".join(problems))
     return versions
 
@@ -81,19 +93,32 @@ def _generate_image(conditioning: Image.Image, prompt: str, settings: Refinement
     import torch
     from diffusers import ControlNetModel, StableDiffusionControlNetPipeline, UniPCMultistepScheduler
 
-    if not torch.cuda.is_available():
-        raise RefinementError("CUDA GPU required; select a T4 runtime in the experiment notebook")
+    device = select_device(torch)
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    small = low_memory()
     pipe = None
     try:
-        logger.info("Loading pretrained Scribble ControlNet and SD 1.5; first use downloads weights")
+        logger.info("Loading Scribble ControlNet and SD 1.5 on %s (low_memory=%s); first use downloads weights", device, small)
+        if device == "cpu":
+            logger.warning("CPU uses FP32 and substantial system RAM; an 8 GB host may not fit these models.")
+        # FP16 checkpoint files reduce download size; CPU converts them to FP32.
         controlnet = ControlNetModel.from_pretrained(
-            CONTROLNET_MODEL, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+            CONTROLNET_MODEL, torch_dtype=dtype, variant="fp16", use_safetensors=True, low_cpu_mem_usage=True)
         pipe = StableDiffusionControlNetPipeline.from_pretrained(
-            BASE_MODEL, controlnet=controlnet, torch_dtype=torch.float16,
-            variant="fp16", use_safetensors=True)
+            BASE_MODEL, controlnet=controlnet, torch_dtype=dtype,
+            variant="fp16", use_safetensors=True, low_cpu_mem_usage=True)
         pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
         # Keep the pretrained safety checker. No .to('cuda') with CPU offload.
-        pipe.enable_model_cpu_offload(gpu_id=0)
+        if device == "cuda":
+            if small:
+                pipe.enable_sequential_cpu_offload(gpu_id=0)
+            else:
+                pipe.enable_model_cpu_offload(gpu_id=0)
+        else:
+            pipe.to("cpu")
+        if small or device == "cpu":
+            pipe.enable_attention_slicing("max")
+        pipe.enable_vae_tiling()
         pipe.enable_vae_slicing()
         generator = torch.Generator(device="cpu").manual_seed(settings.seed)
         with torch.inference_mode():
@@ -111,7 +136,8 @@ def _generate_image(conditioning: Image.Image, prompt: str, settings: Refinement
         if pipe is not None:
             pipe.maybe_free_model_hooks()
         del pipe
-        torch.cuda.empty_cache()
+        if device == "cuda":
+            torch.cuda.empty_cache()
 
 
 def refine_sketch(sketch_path: str, prompt: str, output_dir: str | None = None) -> str:
@@ -151,11 +177,14 @@ def refine_sketch(sketch_path: str, prompt: str, output_dir: str | None = None) 
                 versions[package] = metadata.version(package)
             except metadata.PackageNotFoundError:
                 versions[package] = "missing"
+        import torch
+        actual_device = select_device(torch)
         (directory / "generation.json").write_text(json.dumps({
             "status": "success", "prompt": prompt, **asdict(settings),
             "base_model": BASE_MODEL, "controlnet_model": CONTROLNET_MODEL,
-            "scheduler": "UniPCMultistepScheduler", "size": [512, 512], "dtype": "float16",
-            "cpu_offload": True, "inference_seconds": inference_seconds,
+            "scheduler": "UniPCMultistepScheduler", "size": [512, 512],
+            "device": actual_device, "dtype": "float16" if actual_device == "cuda" else "float32",
+            "cpu_offload": actual_device == "cuda", "low_memory": low_memory(), "inference_seconds": inference_seconds,
             "total_seconds": time.perf_counter() - started, "packages": versions,
             "preprocessing": artifacts.metadata_path, "output": str(target.resolve()),
         }, indent=2), encoding="utf-8")

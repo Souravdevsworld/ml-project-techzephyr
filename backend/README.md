@@ -1,3 +1,5 @@
+> This file describes the original Colab notebook workflow. For the current local Windows setup, CPU/device selection and low-memory mode, see [LOCAL_WINDOWS.md](../docs/LOCAL_WINDOWS.md) and the [root README](../README.md).
+
 # Sketch2Shape backend: TripoSR
 
 The public contract remains `generate_3d(image_path: str, prompt: str | None = None) -> str`.

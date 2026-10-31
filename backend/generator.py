@@ -13,6 +13,7 @@ import uuid
 from PIL import Image
 
 from .validate_mesh import validate_mesh
+from .device import mesh_backend, requested_device
 
 logger = logging.getLogger(__name__)
 OUTPUT_DIR = Path(__file__).resolve().parents[1] / "outputs"
@@ -73,6 +74,10 @@ def generate_3d(image_path: str, prompt: str | None = None) -> str:
     chunk_size = _integer_setting("TRIPOSR_CHUNK_SIZE", 1024, 1, 65536)
     timeout = _integer_setting("TRIPOSR_TIMEOUT_SECONDS", INFERENCE_TIMEOUT, 1, 86400)
     remove_bg = _remove_background()
+    selected = requested_device()
+    # The upstream CLI resolves unavailable CUDA to CPU in auto mode. Workers
+    # resolve and verify an explicit device before calling this public function.
+    device = "cpu" if selected == "cpu" else "cuda:0"
     temporary = None
     stage = "inference"
     try:
@@ -84,8 +89,10 @@ def generate_3d(image_path: str, prompt: str | None = None) -> str:
             command = [sys.executable, "-u", str(script), str(image),
                        "--model-save-format", "glb", "--output-dir", work,
                        "--pretrained-model-name-or-path", "stabilityai/TripoSR",
-                       "--device", "cuda:0", "--mc-resolution", str(resolution),
+                       "--device", device, "--mc-resolution", str(resolution),
                        "--chunk-size", str(chunk_size)]
+            if mesh_backend() == "skimage":
+                command.insert(2, str(Path(__file__).with_name("triposr_runner.py")))
             if not remove_bg:
                 command.append("--no-remove-bg")
             logger.info("Running TripoSR: resolution=%d, chunk=%d, remove_bg=%s, timeout=%ds; "

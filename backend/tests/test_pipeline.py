@@ -184,3 +184,25 @@ def test_gpu_workers_cannot_overlap_across_sessions(input_image,workers):
         second.join(5)
     assert not failures and peak == 1
     assert not first.is_alive() and not second.is_alive()
+
+
+def test_cpu_and_low_memory_config_reach_both_workers(input_image,workers,monkeypatch):
+    monkeypatch.delenv('TRIPOSR_CHUNK_SIZE',raising=False)
+    monkeypatch.delenv('TRIPOSR_TIMEOUT_SECONDS',raising=False)
+    settings=pipeline.GenerationSettings(device='cpu',low_memory=True,mesh_resolution=64)
+    pipeline.generate_result(input_image,settings=settings)
+    for stage,request,kwargs in workers:
+        assert kwargs['env']['SKETCH2SHAPE_DEVICE']=='cpu'
+        assert kwargs['env']['SKETCH2SHAPE_LOW_MEMORY']=='true'
+        assert kwargs['env']['TRIPOSR_CHUNK_SIZE']=='256'
+        assert kwargs['timeout']==7200
+
+
+def test_specific_worker_error_points_to_job_log(input_image,workers):
+    from backend.process import WorkerError
+    def fail(command,**kwargs):
+        request=json.loads(Path(command[-1]).read_text())
+        Path(request['response']).write_text(json.dumps({'error_code':'dependency'}))
+        raise WorkerError('worker failed')
+    with patch.object(pipeline,'run_worker',side_effect=fail),pytest.raises(WorkerError,match='ML dependency.*outputs/jobs/'):
+        pipeline.generate_result(input_image)

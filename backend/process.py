@@ -40,8 +40,8 @@ def run_worker(command: list[str], *, cwd: Path, env: dict, log_path: Path,
                 _ACTIVE.discard(process)
     if code:
         raise WorkerError(
-            f"{stage} failed (exit {code}). Check the job log for missing GPU, weights, "
-            "dependencies or GPU memory errors. No model is available for this run.")
+            f"{stage} failed (exit {code}). Check the job log for model, package, "
+            "device or memory errors. No model is available for this run.")
 
 
 def stop_workers():

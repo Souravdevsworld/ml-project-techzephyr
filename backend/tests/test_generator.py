@@ -158,3 +158,22 @@ class BackendTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CpuCommandTests(unittest.TestCase):
+    setUp = BackendTests.setUp
+    write_output = BackendTests.write_output
+
+    def test_explicit_cpu_and_compiler_free_meshing(self):
+        self.run.side_effect=self.write_output
+        with patch.dict(os.environ,{'SKETCH2SHAPE_DEVICE':'cpu','SKETCH2SHAPE_MESH_BACKEND':'skimage'}):
+            generator.generate_3d(str(self.image))
+        command=self.run.call_args.args[0]
+        self.assertEqual(command[command.index('--device')+1],'cpu')
+        self.assertEqual(Path(command[2]).name,'triposr_runner.py')
+
+    def test_native_meshing_preserves_upstream_entrypoint(self):
+        self.run.side_effect=self.write_output
+        with patch.dict(os.environ,{'SKETCH2SHAPE_DEVICE':'cuda','SKETCH2SHAPE_MESH_BACKEND':'torchmcubes'}):
+            generator.generate_3d(str(self.image))
+        self.assertEqual(Path(self.run.call_args.args[0][2]),self.triposr/'run.py')

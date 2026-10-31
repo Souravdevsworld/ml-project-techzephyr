@@ -1,5 +1,5 @@
 """Real, sequential Scribble → image → TripoSR orchestration; CPU-safe imports."""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 import logging
 import math
@@ -13,7 +13,8 @@ import uuid
 
 from PIL import Image
 
-from .process import run_worker
+from .process import run_worker, WorkerError
+from .device import ERROR_MESSAGES, low_memory, requested_device
 from .ui_adapter import save_input
 from .validate_mesh import validate_mesh
 
@@ -33,6 +34,8 @@ class GenerationSettings:
     conditioning_scale: float = 1.0
     mesh_resolution: int = 128
     remove_background: bool = True
+    device: str = field(default_factory=requested_device)
+    low_memory: bool = field(default_factory=low_memory)
 
     def validate(self):
         for name, value, low, high in (
@@ -49,6 +52,10 @@ class GenerationSettings:
                 raise ValueError(f"{name} must be finite and between {low} and {high}.")
         if not isinstance(self.remove_background, bool):
             raise ValueError("Background removal must be enabled or disabled.")
+        if self.device not in {"auto", "cpu", "cuda"}:
+            raise ValueError("Choose auto, cpu, or cuda for the execution device.")
+        if not isinstance(self.low_memory, bool):
+            raise ValueError("Low-memory mode must be enabled or disabled.")
 
 
 @dataclass(frozen=True)
@@ -85,12 +92,28 @@ def _stage(stage, image, prompt, job, settings):
                 "SKETCH_CFG": str(settings.guidance_scale),
                 "SKETCH_CONTROL_STRENGTH": str(settings.conditioning_scale),
                 "TRIPOSR_MC_RESOLUTION": str(int(settings.mesh_resolution)),
-                "TRIPOSR_REMOVE_BG": str(settings.remove_background).lower()})
+                "TRIPOSR_REMOVE_BG": str(settings.remove_background).lower(),
+                "SKETCH2SHAPE_DEVICE": settings.device,
+                "SKETCH2SHAPE_LOW_MEMORY": str(settings.low_memory).lower()})
+    default_timeout = "7200" if settings.device == "cpu" or settings.low_memory else "1800"
+    env.setdefault("TRIPOSR_TIMEOUT_SECONDS", default_timeout)
+    if settings.low_memory:
+        env.setdefault("TRIPOSR_CHUNK_SIZE", "256")
     python = os.environ.get("SKETCH_PYTHON" if stage == "refine" else "TRIPOSR_PYTHON", sys.executable)
-    run_worker([python, "-u", "-m", "backend.sketch_worker", stage, str(request_path)],
-               cwd=ROOT, env=env, log_path=job / f"{stage}.log",
-               timeout=_timeout("SKETCH_TIMEOUT_SECONDS" if stage == "refine" else "PIPELINE_3D_TIMEOUT_SECONDS", "1800"),
-               stage="Sketch refinement" if stage == "refine" else "TripoSR reconstruction")
+    try:
+        run_worker([python, "-u", "-m", "backend.sketch_worker", stage, str(request_path)],
+                   cwd=ROOT, env=env, log_path=job / f"{stage}.log",
+                   timeout=_timeout("SKETCH_TIMEOUT_SECONDS" if stage == "refine" else "PIPELINE_3D_TIMEOUT_SECONDS", default_timeout),
+                   stage="Sketch refinement" if stage == "refine" else "TripoSR reconstruction")
+    except WorkerError as exc:
+        message = str(exc)
+        if response.is_file():
+            try:
+                code = json.loads(response.read_text(encoding="utf-8")).get("error_code")
+                message = ERROR_MESSAGES.get(code, message)
+            except (ValueError, OSError, AttributeError):
+                pass
+        raise WorkerError(f"{stage}: {message} Log: outputs/jobs/{job.name}/{stage}.log") from exc
     if not response.is_file():
         raise RuntimeError(f"{stage}: worker exited without a result manifest.")
     result = json.loads(response.read_text(encoding="utf-8"))

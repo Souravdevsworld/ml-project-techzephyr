@@ -1,0 +1,6 @@
+# Install an appropriate CPU/CUDA PyTorch wheel separately, before this file.
+# Keep these workers separate from Gradio's newer Hugging Face Hub dependency.
+-r requirements-colab.txt
+-r requirements-sketch-colab.txt
+# Windows wheels: alternative real CPU density-to-mesh extraction, no compiler.
+scikit-image==0.24.0
