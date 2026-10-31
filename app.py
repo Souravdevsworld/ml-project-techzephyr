@@ -5,6 +5,8 @@ import importlib
 import logging
 from pathlib import Path
 import tempfile
+import threading
+import uuid
 
 import gradio as gr
 from PIL import Image, ImageOps
@@ -93,6 +95,95 @@ def generate(sketch, upload, source, prompt, progress=gr.Progress()):
         yield None, None, f"⚠ {message}"
 
 
+# One inference at a time across both actions and all browser sessions.
+INFERENCE_LOCK = threading.Lock()
+SESSION_LOCK = threading.RLock()
+
+
+def new_session():
+    return {"active": None, "running": False, "original": None,
+            "model": None, "previous": None, "submitted_prompt": "",
+            "latest_prompt": "", "error": None}
+
+
+def pending_prompt(prompt, session):
+    """Textbox edits never mutate the immutable request or the status/error."""
+    with SESSION_LOCK:
+        session["latest_prompt"] = (prompt or "").strip()
+        if session["latest_prompt"] == session["submitted_prompt"]:
+            return "No pending prompt edit."
+        label = "(empty prompt)" if not session["latest_prompt"] else session["latest_prompt"]
+        return f"Pending prompt: {label}\nApply it with Regenerate with Prompt after the current run finishes."
+
+
+def submit_request(sketch, upload, source, prompt, session, regenerate=False):
+    with SESSION_LOCK:
+        if session["active"] is not None:
+            raise gr.Error("A generation is already pending or running. Your prompt edit can wait; no new job was started.")
+        value = session["original"] if regenerate else (sketch if source == "Draw" else upload)
+        if regenerate and value is None:
+            raise gr.Error("Generate a successful model before regenerating.")
+        # Freeze pixels before any queued inference; never retain editor references.
+        with tempfile.TemporaryDirectory(prefix="sketch2shape-snapshot-") as directory:
+            try:
+                path = preprocess_sketch(value, Path(directory) / "snapshot.png")
+                with Image.open(path) as image:
+                    snapshot = image.copy()
+            except Exception as exc:
+                raise gr.Error(str(exc)) from exc
+        text = (prompt or "").strip()
+        session["active"] = {"id": uuid.uuid4().hex, "image": snapshot,
+                             "prompt": text, "regenerate": regenerate}
+        session["submitted_prompt"] = text
+        session["latest_prompt"] = text
+        session["error"] = None
+        return (session, "⏳ Request captured. Waiting to generate…",
+                gr.update(interactive=False), gr.update(interactive=False),
+                "No pending prompt edit.")
+
+
+def submit_regeneration(prompt, session):
+    return submit_request(None, None, None, prompt, session, regenerate=True)
+
+
+def run_request(session, progress=gr.Progress()):
+    with SESSION_LOCK:
+        request = session["active"]
+        if request is None or session["running"]:
+            return (gr.skip(),) * 7
+        session["running"] = True
+    try:
+        with INFERENCE_LOCK:
+            result = None
+            for result in generate(request["image"], None, "Draw", request["prompt"], progress):
+                pass
+        if result is None:
+            raise RuntimeError("Generation returned no result.")
+        model, _, message = result
+    except Exception:
+        logger.exception("Request failed")
+        model, message = None, "⚠ Generation failed. Check the server logs and try again."
+    with SESSION_LOCK:
+        # A superseded job must never publish artifacts or reset a newer job.
+        if session["active"] is None or session["active"]["id"] != request["id"]:
+            return (gr.skip(),) * 7
+        if model:
+            session["previous"] = session["model"]
+            session["model"] = model
+            session["original"] = request["image"]
+            session["error"] = None
+            message = "✓ New generation ready. Prompt passed to backend; conditioning support is backend-dependent."
+        else:
+            session["error"] = message
+            if session["model"]:
+                message += " Previous successful model retained."
+        session["active"] = None
+        session["running"] = False
+        return (session["model"], session["model"], session["previous"],
+                session["original"], message, gr.update(interactive=True),
+                gr.update(interactive=session["original"] is not None))
+
+
 CSS = """
 body, .gradio-container { background: #090d17 !important; color: #e8edf7 !important; }
 .gradio-container { max-width: 1320px !important; margin: auto; }
@@ -109,6 +200,7 @@ footer { display: none !important; }
 
 def build_app():
     with gr.Blocks(title="Sketch2Shape AI") as demo:
+        session = gr.State(new_session)
         gr.HTML('''<section id="hero" class="shader-hero"><div data-shader-root aria-hidden="true"></div><span class="eyebrow">SKETCH2SHAPE AI / CREATIVE LAB</span>
         <h1>A simple sketch.<br>A whole new dimension.</h1>
         <p>Draw your idea, add a little direction, and turn it into a 3D object you can explore.</p></section>''',
@@ -128,16 +220,30 @@ def build_app():
                 reset = gr.Button("↺ Reset canvas", size="sm")
                 upload = gr.Image(label="Upload PNG or JPG", type="pil", sources=["upload"], visible=False)
                 prompt = gr.Textbox(label="Appearance · optional", placeholder="e.g. A matte ceramic vase with soft, rounded edges", lines=2, max_length=1000)
+                gr.Markdown("Prompt is optional and is passed to the backend. Text conditioning depends on backend support.")
+                pending = gr.Textbox(label="Pending prompt edit", value="No pending prompt edit.", interactive=False, lines=2)
                 generate_button = gr.Button("Generate 3D  →", variant="primary", elem_id="generate")
             with gr.Column(scale=1, min_width=320, elem_classes="panel"):
                 gr.Markdown("### 02 / Explore your creation\nDrag to orbit · Scroll to zoom")
                 viewer = gr.Model3D(label="3D workspace", height=460, clear_color=(0.04, 0.06, 0.1, 1))
                 status = gr.Markdown("Ready when you are. Draw or upload a sketch to begin.", elem_id="status")
                 download = gr.File(label="Download GLB", interactive=False)
+                regenerate_button = gr.Button("Regenerate with Prompt", interactive=False)
+                gr.Markdown("Regeneration creates a new model from the saved original sketch. It does not edit the existing mesh.")
+                with gr.Accordion("Original sketch & previous successful model", open=False):
+                    original = gr.Image(label="Saved original sketch", interactive=False, type="pil")
+                    previous = gr.Model3D(label="Previous successful model", height=280)
         gr.Markdown("**Sketch → Shape → Explore** &nbsp; · &nbsp; Built for ideas in the making. GLB files work with Blender and other 3D tools.")
         source.change(lambda value: (gr.update(visible=value == "Draw"), gr.update(visible=value == "Upload")), source, [sketch, upload], queue=False)
         reset.click(lambda: None, outputs=sketch, queue=False)
-        generate_button.click(generate, [sketch, upload, source, prompt], [viewer, download, status], concurrency_limit=1, show_progress="full")
+        prompt.change(pending_prompt, [prompt, session], pending, queue=False, trigger_mode="always_last")
+        admission_outputs = [session, status, generate_button, regenerate_button, pending]
+        result_outputs = [viewer, download, previous, original, status, generate_button, regenerate_button]
+        for event in (
+            generate_button.click(submit_request, [sketch, upload, source, prompt, session], admission_outputs, queue=False, trigger_mode="once"),
+            regenerate_button.click(submit_regeneration, [prompt, session], admission_outputs, queue=False, trigger_mode="once"),
+        ):
+            event.success(run_request, session, result_outputs, concurrency_id="inference", concurrency_limit=1, show_progress="full")
     return demo.queue(default_concurrency_limit=1)
 
 

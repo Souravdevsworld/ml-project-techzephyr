@@ -13,7 +13,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Open the address printed by Gradio. The frontend starts without the generation backend; attempting generation then displays a clear unavailable-backend error and clears previous results. No placeholder model is produced. Gradio provides loading progress and queues one generation at a time.
+Open the address printed by Gradio. The frontend starts without the generation backend; attempting generation then displays a clear unavailable-backend error. A previous successful model is retained when a later request fails. No placeholder model is produced. Gradio provides loading progress and queues one generation at a time.
 
 ## Backend contract
 
@@ -54,3 +54,16 @@ python app.py
 ```
 
 Commit the generated `assets/shader-animation.js` and `.css` alongside source changes. They are included so Python-only startup does not require Node or an internet connection. `npm run typecheck` checks the TypeScript component independently. No props, state providers, icons, or stock images are required. The animation is decorative, resizes to the hero, caps pixel density at 2, and leaves the static gradient when reduced motion is requested or WebGL is unavailable. GPU resources and animation frames are cleaned up when unmounted.
+
+
+## Optional prompt edits and regeneration
+
+Generate works with an empty appearance prompt. The submitted prompt is trimmed and passed to `generate_3d(image_path, prompt)`; whether it conditions the output depends on backend support and has not been verified with the real backend.
+
+Clicking Generate captures independent RGB sketch pixels and the prompt before inference enters the queue. Both generation actions are disabled while the request is pending or running. The prompt textbox remains editable: edits appear in the separate pending-edit field, never alter the active request, and never automatically trigger inference. Prompt edits do not clear generation errors.
+
+After a successful generation, **Regenerate with Prompt** starts a new request from the saved original sketch and the current prompt. It does not edit an existing mesh. The current model/download stay available during a new attempt or after a failure. The expandable comparison area retains the saved sketch and the immediately previous successful model. A successful new Generate replaces the saved original with its own input; failed attempts leave the previous saved input intact. Session history is in memory and resets on a new browser session/server restart.
+
+Both actions share one inference queue and a server-side inference lock. Admission rejects a second request for an active session, duplicate worker calls are ignored, and request IDs prevent superseded completions from publishing results. These controls cover a single application process; run one worker process per backend instance (a multi-process deployment would need a shared queue/lock).
+
+The tests also cover click-time snapshots, optional prompts, edits during blocked inference, rejected overlap, sequential inference across sessions, original-sketch regeneration, comparison history, failure retention, and stale-result rejection. Browser checks use a temporary test backend only and do not establish real text-guided generation support.
