@@ -203,7 +203,7 @@ def build_app():
         session = gr.State(new_session)
         gr.HTML('''<section id="hero" class="shader-hero"><div data-shader-root aria-hidden="true"></div><span class="eyebrow">SKETCH2SHAPE AI / CREATIVE LAB</span>
         <h1>A simple sketch.<br>A whole new dimension.</h1>
-        <p>Draw your idea, add a little direction, and turn it into a 3D object you can explore.</p><div data-atmosphere-controls></div></section>''',
+        <p>Draw your idea, add a little direction, and turn it into a 3D object you can explore.</p></section>''',
             css_template=(ASSETS / "shader-animation.css").read_text(),
             js_on_load=(ASSETS / "shader-animation.js").read_text(),
         )
