@@ -1,0 +1,17 @@
+# Python virtual environments
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# API keys and environment variables
+.env
+.env.*
+
+# Generated 3D assets
+outputs/
+
+# macOS files
+.DS_Store
