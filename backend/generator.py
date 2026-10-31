@@ -16,6 +16,7 @@ from .config import ROOT, Settings
 
 log = logging.getLogger(__name__)
 _LOCK = threading.Lock()
+_DISPATCH_LOCK = threading.RLock()
 _CLIENT = None
 
 
@@ -51,11 +52,12 @@ class WorkerError(RuntimeError):
 
 
 class Worker:
-    def __init__(self, python):
+    def __init__(self, python, worker_module='backend.worker', label='TripoSR'):
+        self.label = label
         self.started = time.perf_counter()
         self.last_response = {}
         self.process = subprocess.Popen(
-            [python, '-u', '-m', 'backend.worker', '--ready-signal'], cwd=ROOT,
+            [python, '-u', '-m', worker_module, '--ready-signal'], cwd=ROOT,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             text=True, bufsize=1,
             # stderr inherits server logs; never shares the JSON stdout channel.
@@ -81,15 +83,15 @@ class Worker:
             try:
                 line = self.responses.get(timeout=max(0, deadline-time.perf_counter()))
             except queue.Empty as exc:
-                raise TimeoutError('TripoSR inference timed out; the worker will be restarted on the next request.') from exc
+                raise TimeoutError(f"{getattr(self, 'label', '3D')} inference timed out; the worker will be restarted on the next request.") from exc
             if line is None:
-                raise RuntimeError('TripoSR worker exited. Check backend dependencies and server logs.')
+                raise RuntimeError(f"{getattr(self, 'label', '3D')} worker exited. Check backend dependencies and server logs.")
             result = json.loads(line)
             if result.get('ready'):
                 startup_seconds = time.perf_counter() - getattr(self, 'started', started)
                 continue
             if result.get('id') != payload['id']:
-                raise RuntimeError('TripoSR worker returned a mismatched request ID.')
+                raise RuntimeError(f"{getattr(self, 'label', '3D')} worker returned a mismatched request ID.")
             self.last_response = result.get('report', {})
             timings = self.last_response.setdefault('timings', {})
             rpc_seconds = time.perf_counter() - started
@@ -114,7 +116,7 @@ class Worker:
         self.process.stdout.close()
 
 
-def shutdown_worker():
+def _shutdown_triposr_worker():
     global _CLIENT
     with _LOCK:
         if _CLIENT is not None:
@@ -122,15 +124,22 @@ def shutdown_worker():
             _CLIENT = None
 
 
+def shutdown_worker():
+    with _DISPATCH_LOCK:
+        from .backends.factory import close_backends
+        close_backends()
+        _shutdown_triposr_worker()
+
+
 atexit.register(shutdown_worker)
 
 
 def generate_3d(image_path: str, prompt: str | None = None) -> str:
-    """Reconstruct a GLB synchronously. TripoSR does not condition on text."""
+    """Reconstruct a genuine GLB synchronously using the configured engine."""
     return generate_with_report(image_path, prompt)['path']
 
 
-def generate_with_report(image_path, prompt=None, *, preprocessing=None, output_dir=None):
+def _generate_triposr_report(image_path, prompt=None, *, preprocessing=None, output_dir=None):
     """Backend evaluation entry; same inference worker, optional per-run prep."""
     global _CLIENT
     total_started = time.perf_counter()
@@ -184,3 +193,31 @@ def generate_with_report(image_path, prompt=None, *, preprocessing=None, output_
                              adapter_input_validation_seconds=input_validation_seconds,
                              adapter_queue_wait_seconds=queue_wait_seconds)
     return report
+
+
+def generate_with_report(image_path, prompt=None, *, preprocessing=None, output_dir=None, engine=None, fallback=None):
+    """Backend-only report API; frontend generate_3d still returns only a path.
+
+    Default is TripoSR. SF3D fallback is opt-in and is always labeled as TripoSR.
+    Evaluation can pass fallback=False so unavailable SF3D remains a failed run.
+    """
+    from .backends.factory import selected_engine, fallback_enabled, get_backend, release_inactive
+    name = selected_engine(engine)
+    can_fallback = fallback_enabled(name, fallback)
+    image = validate_input(image_path)
+    if prompt is not None and not isinstance(prompt, str):
+        raise ValueError('prompt must be a string or None.')
+    with _DISPATCH_LOCK:
+        release_inactive(name)
+        backend = get_backend(name)
+        try:
+            report = backend.generate_report(str(image), prompt, preprocessing=preprocessing, output_dir=output_dir)
+        except RuntimeError as exc:
+            if not can_fallback:
+                raise
+            log.warning('SF3D failed; explicitly configured TripoSR fallback will be used: %s', exc)
+            release_inactive('triposr')
+            report = get_backend('triposr').generate_report(str(image), prompt, preprocessing=preprocessing, output_dir=output_dir)
+            report['fallback'] = {'requested_engine': name, 'actual_engine': 'triposr', 'reason': str(exc)}
+        report['requested_engine'] = name
+        return report

@@ -239,3 +239,150 @@ Synthetic tests cover RGB/RGBA, existing transparency, fully empty inputs, white
 Real rembg U²-Net segmentation was executed on official TripoSR `examples/teapot.png` using checksum-verified weights in the cloud. The mask and five-case input comparison were visually inspected: the handle opening remains visible, and 0.75/0.85/0.90 framing differs as intended. This verifies that example's mask/framing only. It is not a white mug, a representative photo benchmark, or evidence of improved 3D geometry. The user's original mug image/GLB were not supplied to this task.
 
 No new genuine pretrained TripoSR inference or baseline/enhanced GLB comparison was possible in this cloud task: TripoSR weights/DINO config are not available and Hugging Face remains denied by environment policy. The user's previously successful Mac inference is acknowledged, but this task does not independently reconfirm it. Baseline pixel equivalence, the unchanged model forward/extraction path, and mock/protocol tests were verified here. Actual Mac M4 reconstruction quality, baseline-versus-photo GLBs, memory/runtime, and experimental MPS execution remain unverified. Run the commands above on the Mac before claiming improved reconstruction fidelity.
+
+## Multiple engines: TripoSR default, SF3D experimental
+
+The unchanged frontend still calls `generate_3d(image_path: str, prompt: str | None = None) -> str`. It receives only a unique absolute local GLB path after validation. `backend/backends/base.py` defines the report interface; `factory.py` lazily selects an engine; `triposr_backend.py` delegates to the existing worker, while `sf3d_backend.py` launches a separate persistent SF3D worker/interpreter. There are no frontend changes. TripoSR preprocessing, model loading, mesh extraction, comparison workflow, and dependency environment are retained.
+
+```bash
+export SKETCH2SHAPE_3D_BACKEND=triposr  # default; current working Mac fallback
+# Opt in only after installing SF3D below:
+export SKETCH2SHAPE_3D_BACKEND=sf3d
+```
+
+Both engines are image-only. Optional text prompts remain accepted and logged as unused; neither engine performs text-conditioned reconstruction or edits an existing mesh.
+
+`SKETCH2SHAPE_3D_FALLBACK=error` is the default. A failed SF3D request remains an error. To deliberately allow a TripoSR result instead, set `SKETCH2SHAPE_3D_FALLBACK=triposr`. Fallback logs the original SF3D error and records `requested_engine=sf3d`, `actual_engine=triposr`, and the reason in the backend report. It must not be presented as an SF3D asset or SF3D benchmark. Invalid engine/configuration values or input files are errors, not automatic fallback triggers. Engine comparison always passes `fallback=False`, overriding the environment setting. The existing Milestone A `backend.evaluate_preprocessing` tool is pinned to TripoSR regardless of the frontend engine setting, so its baseline/photo input experiments remain comparable.
+
+Requests share a process-wide dispatch lock and each worker retains its own safety lock. Switching engines closes the idle engine's worker to limit peak unified memory. Successive requests to the same engine reuse its model. The comparison tool groups inputs by engine to avoid reloading a model for every image. No concurrent two-model inference is introduced. Configuration is backend-only; restart the frontend after changing its environment. `shutdown_worker()` closes both engines.
+
+### Why SF3D is an asset-quality candidate
+
+Official source inspected: [Stability-AI/stable-fast-3d](https://github.com/Stability-AI/stable-fast-3d), commit `ff21fc491b4dc5314bf6734c7c0dabd86b5f5bb2`. See its `README.md`, `run.py`, `sf3d/system.py`, `sf3d/models/mesh.py`, `sf3d/utils.py`, and native-module setup files.
+
+Unlike the existing TripoSR vertex-color export, SF3D reconstructs geometry, unwraps UVs, bakes a base-color texture, estimates metallic/roughness material factors, and can include a normal texture. Its upstream export is directly `mesh.export(..., include_normals=True)` to GLB. We preserve that textured `trimesh.Trimesh` without converting it through an untextured mesh or OBJ. Both worker and parent validate nonempty geometry and connected UV/material/embedded-base-color-texture resources. A plain untextured mesh is rejected by the SF3D adapter instead of being labeled a complete SF3D asset.
+
+| Format/capability | What is supported |
+| --- | --- |
+| GLB | Native upstream CLI output; selected by this integration; embedded images, UVs, PBR material parameters and available normal texture retained |
+| UVs/materials/textures | Native SF3D pipeline, with custom CPU/CUDA/Metal baking and UV extension |
+| OBJ + MTL + images | Potential Trimesh export, not an upstream CLI output option and **not implemented here**; not equivalent preservation of PBR/normal/roughness/metallic semantics |
+| Appearance quality | SF3D is designed for better mesh/texturing and illumination disentanglement; no claim of superior geometry or recognizability is made without actual paired GLB review |
+
+A single image still cannot determine hidden geometry perfectly. Detailed textures can make a distorted shape look convincing from one angle. Inspect the full orbit, silhouette, openings and usable UV/material layout, not just polygon count or a textured screenshot. TripoSR remains the recommended default until your real SF3D runs validate this tradeoff.
+
+### Compatibility findings and isolation
+
+Current upstream documents **CPU support** and **experimental MPS support**; it is not CUDA-only. Its Mac tests described M1 Max 64 GB with a PyTorch nightly, and its README recommends CPU for Macs with less than 32 GB unified memory. This is not a Mac M4 test or a promise about M4 memory/runtime. Native `texture_baker` and `uv_unwrapper` C++ extensions are required even in CPU mode. MPS baking additionally uses custom Metal kernels. Mac compilation needs OpenMP support; see [upstream's OpenMP reference](https://mac.r-project.org/openmp/).
+
+The proposed environment uses Python 3.11, PyTorch 2.5.1 and matching torchvision 0.20.1. SF3D uses transformers 4.42.3, open_clip_torch 2.24.0, huggingface-hub 0.23.4, trimesh 4.4.1, rembg 2.0.57 and other pins in `backend/requirements-sf3d.txt`. These conflict with some working TripoSR pins; **do not combine the requirements or install into the TripoSR/frontend venv**. CPU ONNX segmentation is selected rather than upstream's optional Linux GPU rembg extra. Direct dependencies are pinned; transitive dependencies are not fully locked.
+
+The SF3D source's `load/tets/160_tets.npz` must remain in its checkout. It also imports `gpytoolbox` and `pynanoinstantmeshes` even when remeshing is disabled. This integration uses `remesh='none'` and `vertex_count=-1` to retain native detail and avoid an unverified remeshing/conversion stage.
+
+### SF3D installation on Mac M4 — commands to test, not a verified Mac recipe
+
+Leave your existing environments intact. From the project checkout:
+
+```bash
+brew install llvm libomp
+python3.11 -m venv backend/.venv-sf3d
+export SF3D_PYTHON="$PWD/backend/.venv-sf3d/bin/python"
+"$SF3D_PYTHON" -m pip install setuptools==69.5.1 wheel ninja
+"$SF3D_PYTHON" -m pip install -r backend/requirements-sf3d.txt
+mkdir -p backend/vendor
+git clone https://github.com/Stability-AI/stable-fast-3d.git backend/vendor/stable-fast-3d
+git -C backend/vendor/stable-fast-3d checkout ff21fc491b4dc5314bf6734c7c0dabd86b5f5bb2
+export SF3D_SOURCE="$PWD/backend/vendor/stable-fast-3d"
+export SF3D_MODEL_DIR="$PWD/backend/weights/stable-fast-3d"
+export HF_HOME="$PWD/backend/.cache/sf3d/huggingface"
+export TORCH_HOME="$PWD/backend/.cache/sf3d/torch"
+export U2NET_HOME="$PWD/backend/.cache/rembg"
+export SF3D_DEVICE=cpu
+export SF3D_USE_CPU=1
+
+# Compile from each extension's actual source directory; preserve TLS/checksums.
+SF3D_LLVM_PREFIX="$(brew --prefix llvm)"
+SF3D_OMP_PREFIX="$(brew --prefix libomp)"
+(
+  cd "$SF3D_SOURCE"
+  CC="$SF3D_LLVM_PREFIX/bin/clang" CXX="$SF3D_LLVM_PREFIX/bin/clang++" \
+  CPPFLAGS="-I$SF3D_OMP_PREFIX/include" \
+  LDFLAGS="-L$SF3D_OMP_PREFIX/lib -Wl,-rpath,$SF3D_OMP_PREFIX/lib" \
+  USE_CUDA=0 USE_METAL=0 MAX_JOBS=2 \
+  "$SF3D_PYTHON" -m pip install --no-build-isolation ./texture_baker ./uv_unwrapper
+)
+```
+
+If the vendor checkout already exists, preserve/inspect it before changing it. The command-line toolchain/OpenMP combination and ARM64 dependency wheels must be tested on the actual Mac; do not disable verification or patch native code blindly to bypass a failure. Native modules must be rebuilt if the backend PyTorch build changes. CPU-only Linux users should install `torch==2.5.1 torchvision==0.20.1` from `https://download.pytorch.org/whl/cpu` first, then install this requirements file and compile extensions with the platform's C++/OpenMP toolchain. Linux CPU builds were verified here; this does not validate Apple Metal builds.
+
+### Weights, auxiliary downloads, and license
+
+SF3D weights are gated at [stabilityai/stable-fast-3d](https://huggingface.co/stabilityai/stable-fast-3d). First request access and review the official model agreement/`LICENSE.md`. The code/model is **source-available under the Stability AI Community License, not the TripoSR MIT license or unrestricted OSI open source**. Commercial eligibility/revenue conditions, attribution and redistribution terms apply. Consult the official agreement for your intended hackathon/demo/distribution use. This optional feature is **Powered by Stability AI**; retain upstream notices and required attribution when distributing. No license acceptance or gated download is automated by this implementation.
+
+After access is granted, authenticate locally and download into the ignored weights directory:
+
+```bash
+backend/.venv-sf3d/bin/huggingface-cli login
+backend/.venv-sf3d/bin/huggingface-cli download stabilityai/stable-fast-3d \
+  config.yaml model.safetensors --local-dir "$SF3D_MODEL_DIR"
+```
+
+Do not put tokens in chat, scripts, Git, or shell command arguments. Existing working local authentication can be reused; an additional login is unnecessary if the download already works.
+
+The official loader also constructs DINOv2 (`facebook/dinov2-large`) and a configuration-dependent OpenCLIP estimator (source defaults include ViT-B-32 / `laion2b_s34b_b79k`). Auxiliary model/config downloads may happen on first load even when the two SF3D checkpoint files are local. Keep the corresponding Hugging Face/Torch/OpenCLIP caches accessible. Two local SF3D files alone do **not** establish offline readiness. Only after a successful first run should you test offline restoration. Do not replace legitimate checkpoints with random initialized/fake networks on download errors.
+
+### SF3D preprocessing and device settings
+
+SF3D has its own preparation path: existing valid alpha is reused; opaque input is segmented using the shared cached rembg helper; the mask is validated; the object is framed with preserved aspect ratio and alpha. It remains **RGBA** until upstream `prepare_image()` uses alpha for mask conditioning and composites against its configured background internally. TripoSR's flattened RGB modes are not applied to SF3D. Invalid SF3D alpha/segmentation fails clearly; only the explicitly configured whole-engine TripoSR fallback may reconstruct the original input instead.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SF3D_PYTHON` | required | Absolute executable in the separate SF3D venv |
+| `SF3D_SOURCE` | `backend/vendor/stable-fast-3d` | Official pinned source with tetrahedral-grid asset |
+| `SF3D_MODEL_DIR` | `backend/weights/stable-fast-3d` | Local `config.yaml` and `model.safetensors` |
+| `SF3D_DEVICE` | `cpu` | Explicit `cpu`, `mps`, or `cuda`; no silent whole-model switch |
+| `SF3D_TEXTURE_RESOLUTION` | `1024` | 256, 512, 1024, 2048 or 4096; texture size, not a mesh-quality guarantee |
+| `SF3D_FOREGROUND_RATIO` | `0.85` | 0.10–0.95 foreground framing |
+| `SF3D_SEGMENTATION_MODEL` | `u2net` | `u2net` or `u2netp` |
+| `SF3D_TIMEOUT` | `1800` | Positive seconds, including first load and auxiliary downloads |
+| `SF3D_OUTPUT_DIR` | `backend/outputs/sf3d` | Unique retained GLBs |
+
+The child sets `SF3D_USE_CPU=1` for explicit CPU because upstream helpers can otherwise auto-select a GPU independently of `model.to()`. For experimental MPS you must explicitly set `PYTORCH_ENABLE_MPS_FALLBACK=1` **before** starting the worker, as upstream requires; this permits mixed CPU execution for unsupported operators. It is not the same as TripoSR's no-implicit-fallback MPS policy. The adapter reports the selection and does not silently claim pure MPS inference. Metal baking additionally requires rebuilding `texture_baker` with `USE_METAL=1` (same pinned PyTorch environment); CPU-only builds do not establish Metal readiness. See the upstream README for OpenMP/Metal troubleshooting.
+
+### Local inference and paired comparison
+
+Once the environments and model caches are configured, both calls use the same existing CLI and frontend contract:
+
+```bash
+# Keep TRIPOSR_PYTHON / TRIPOSR_SOURCE / TRIPOSR_MODEL_DIR from the working setup.
+SKETCH2SHAPE_3D_BACKEND=triposr "$TRIPOSR_PYTHON" -m backend.cli /absolute/path/to/mug.png
+
+# Experimental CPU SF3D: actual reconstruction + UVs/materials/textures required.
+SKETCH2SHAPE_3D_BACKEND=sf3d SF3D_DEVICE=cpu \
+  "$TRIPOSR_PYTHON" -m backend.cli /absolute/path/to/mug.png
+
+# Compare teapot, chair, hamburger, and your real mug without automatic fallback:
+"$TRIPOSR_PYTHON" -m backend.compare_backends \
+  --examples-dir "$TRIPOSR_SOURCE/examples" \
+  --mug /absolute/path/to/mug.png --triposr-mode photo
+```
+
+`--image /absolute/path/to/another-object.png` adds further inputs; repeat as needed. Omit `--mug` if unavailable: the report marks it skipped and never invents a mug result. Required official example files missing from `--examples-dir` are errors. `--engines triposr` or `--engines sf3d` supports focused runs. The tool never overwrites prior assets and never substitutes TripoSR output for a failed SF3D comparison.
+
+New `backend/evaluations/backends/<uuid>/report.json` records source hashes, requested/actual engine, preprocessing, elapsed runtime, GLB validity/path/size, vertex/face counts, UVs, material/texture presence and generation diagnostics. A GLB without engine attribution or with mismatched attribution is an error. Runs are grouped by engine to reuse loaded weights and limit RAM; pair results by input name/hash, not row adjacency. `review.csv` provides blank 1–5 scores for recognizability, silhouette, fine detail, surface quality, asset usability, texture/material quality and overall quality. Review matching full orbits and actual GLBs in Blender/a GLB-capable viewer. Larger counts/textures alone are not quality improvements.
+
+### Verification status
+
+- **TripoSR:** the existing working Mac backend remains the default; its original worker/runtime/preprocessing tests are retained. No new pretrained TripoSR run was executed in this cloud task; local weights are unavailable.
+- **SF3D implementation:** real upstream loading/inference/export wiring exists, in an isolated worker, with explicit configuration and validation. No successful pretrained SF3D asset is claimed.
+- **Partially verified on Linux CPU:** Python 3.11.17, PyTorch 2.5.1+cpu, torchvision 0.20.1+cpu and upstream Python dependency pins installed in `/workspace/sf3d-venv`. Both official native modules compiled with GCC 14 and two build jobs. Actual CPU rasterization/interpolation and UV-unwrapping smoke tests passed on tiny geometric fixtures, and `sf3d.system.SF3D` imported. These are kernel/import tests, **not pretrained reconstruction or quality tests**.
+- **Not verified:** gated SF3D checkpoint loading, DINOv2/OpenCLIP cache restoration, real SF3D/TripoSR paired outputs, your mug, Mac M4/ARM64 or Metal/MPS execution, runtime/memory and quality gains. Cloud egress does not currently allow Hugging Face; no gated token/access was requested or extracted. No checkpoint was downloaded to pretend otherwise.
+
+Run tests separately without mixing dependency environments:
+
+```bash
+"$TRIPOSR_PYTHON" -m unittest discover -s backend/tests -v
+/absolute/path/to/existing/frontend-venv/bin/python -m unittest discover -s tests -v
+```
+
+Fixture/mocked engine tests verify selection, error propagation, explicit fallback attribution, native GLB texture/resource validation and comparison bookkeeping. Existing tests are not weakened. Weights, environments, caches, generated assets and evaluation/debug files remain ignored; only backend-owned source/tests/docs and necessary ignore rules change. No commit, push, merge or publication occurs without approval.

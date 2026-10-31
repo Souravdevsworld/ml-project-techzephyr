@@ -15,12 +15,19 @@ import uuid
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from .config import Settings
-from .generator import generate_with_report, shutdown_worker
+from .generator import generate_with_report as generate_engine_report, shutdown_worker
 from .preprocessing import Preprocessor
 
 log = logging.getLogger(__name__)
 RUBRIC = ['recognizability', 'silhouette_fidelity', 'handles_and_openings',
           'absence_of_background_geometry', 'absence_of_surface_distortion', 'visual_completeness']
+
+
+def generate_with_report(image_path, *, preprocessing=None, output_dir=None):
+    # Milestone A measures TripoSR input preparation, never a different engine
+    # selected for the frontend. Keep this local helper patchable by its tests.
+    return generate_engine_report(image_path, preprocessing=preprocessing,
+                                  output_dir=output_dir, engine='triposr', fallback=False)
 
 
 def configurations(base, ratios):

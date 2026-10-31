@@ -31,3 +31,6 @@ backend/**/*.safetensors
 # Milestone A preprocessing inspection and evaluation artifacts
 backend/debug/
 backend/evaluations/
+
+# Optional SF3D environment (separate from working TripoSR/frontend venvs)
+backend/.venv-sf3d/
