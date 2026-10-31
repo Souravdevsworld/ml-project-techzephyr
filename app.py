@@ -12,6 +12,7 @@ import trimesh
 
 logger = logging.getLogger(__name__)
 MAX_EDGE = 1024
+ASSETS = Path(__file__).resolve().parent / "assets"
 
 
 def preprocess_sketch(value, output_path: str | Path) -> str:
@@ -108,9 +109,12 @@ footer { display: none !important; }
 
 def build_app():
     with gr.Blocks(title="Sketch2Shape AI") as demo:
-        gr.HTML('''<section id="hero"><span class="eyebrow">SKETCH2SHAPE AI / CREATIVE LAB</span>
+        gr.HTML('''<section id="hero" class="shader-hero"><div data-shader-root aria-hidden="true"></div><span class="eyebrow">SKETCH2SHAPE AI / CREATIVE LAB</span>
         <h1>A simple sketch.<br>A whole new dimension.</h1>
-        <p>Draw your idea, add a little direction, and turn it into a 3D object you can explore.</p></section>''')
+        <p>Draw your idea, add a little direction, and turn it into a 3D object you can explore.</p></section>''',
+            css_template=(ASSETS / "shader-animation.css").read_text(),
+            js_on_load=(ASSETS / "shader-animation.js").read_text(),
+        )
         with gr.Row(equal_height=True):
             with gr.Column(scale=1, min_width=320, elem_classes="panel"):
                 gr.Markdown("### 01 / Shape your idea\nStart with a clear silhouette on a white background.")

@@ -1,0 +1,8 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "../components";
+@source "./";
+.shader-hero { position: relative; isolation: isolate; overflow: hidden; border-radius: 20px; background: radial-gradient(ellipse at 80% 45%, #15364c, #090d17 75%); border: 1px solid #28344b; margin: 12px 0 24px; }
+.shader-hero [data-shader-root] { position: absolute; inset: 0; z-index: -2; opacity: .42; pointer-events: none; }
+.shader-hero::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, #090d17ed, #090d1733); pointer-events: none; }
+.shader-hero canvas { display: block; }

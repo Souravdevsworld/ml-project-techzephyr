@@ -38,3 +38,19 @@ python -m unittest discover -s tests -v
 Tests cover canvas transparency/aspect ratio, JPEG preprocessing, empty input, missing backend, invalid and empty GLBs, the backend argument contract using a test double, and Gradio construction. Test meshes are fixtures only; the application never fabricates generation output. Real end-to-end generation requires the teammate's backend and its model dependencies.
 
 Frontend work is on `swagat-dev`. Backend code on `sourav-dev` is untouched; no branch merge is required for frontend startup. Dependency ranges target Gradio 6.x; there is no project lockfile yet.
+
+## Animated React hero
+
+The supplied `ShaderAnimation` React/Three.js component lives in `components/ui/shader-animation.tsx`. Gradio mounts its bundled React root inside the hero through `gr.HTML(js_on_load=...)`; drawing and generation remain Gradio components. No external CDN or image assets are needed.
+
+The frontend has TypeScript, Tailwind 4 utilities, a `@/` import alias, and a shadcn `components.json` configuration. `components/ui` keeps reusable UI components at the configured shadcn alias. This is a Gradio embedding rather than a separate Next.js application, so running `shadcn init` is unnecessary. Styles live in `frontend/styles.css` and the mount entry is `frontend/main.tsx`.
+
+To edit and rebuild the animation (Node.js 20+):
+
+```bash
+npm ci
+npm run build
+python app.py
+```
+
+Commit the generated `assets/shader-animation.js` and `.css` alongside source changes. They are included so Python-only startup does not require Node or an internet connection. `npm run typecheck` checks the TypeScript component independently. No props, state providers, icons, or stock images are required. The animation is decorative, resizes to the hero, caps pixel density at 2, and leaves the static gradient when reduced motion is requested or WebGL is unavailable. GPU resources and animation frames are cleaned up when unmounted.
