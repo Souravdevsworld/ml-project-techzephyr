@@ -273,7 +273,14 @@ def main():
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--device", choices=["auto", "cuda", "cpu"], help="Initial device selection; auto prefers CUDA when available")
     parser.add_argument("--low-memory", action="store_true", help="Start with sequential offload, 256px refinement, CFG 1, 12 steps and mesh resolution 64")
+    parser.add_argument("--share", action="store_true", help="Create a temporary Gradio link; requires SKETCH2SHAPE_SHARE_PASSWORD in the environment")
     args = parser.parse_args()
+    auth = None
+    if args.share:
+        password = os.environ.get("SKETCH2SHAPE_SHARE_PASSWORD", "")
+        if len(password) < 12:
+            parser.error("--share requires SKETCH2SHAPE_SHARE_PASSWORD with at least 12 characters")
+        auth = ("sketch2shape", password)
     if args.device:
         os.environ["SKETCH2SHAPE_DEVICE"] = args.device
     if args.low_memory:
@@ -285,7 +292,7 @@ def main():
         raise SystemExit(128 + signum)
     signal.signal(signal.SIGTERM, terminate)
     try:
-        build_app().launch(server_name=args.host, server_port=args.port, share=False, max_file_size="20mb",
+        build_app().launch(server_name=args.host, server_port=args.port, share=args.share, auth=auth, max_file_size="20mb",
             theme=gr.themes.Base(primary_hue="violet", neutral_hue="slate"), css=CSS,
             js="() => { document.documentElement.classList.add('dark'); }")
     finally:

@@ -8,6 +8,12 @@ This branch connects the team's existing model implementations to the existing G
 
 **Verification status:** offline tests and UI construction have been run in a CPU environment. Real GPU acceptance has **not** been run here; no fresh generated GLB or quality claim is supplied. See [verification](docs/VERIFICATION.md). Generation requires the separate ML setup below. CPU mode is available, but the full pretrained sketch pipeline has not been acceptance-tested here on CPU or GPU.
 
+## Run on Google Colab instead of your laptop GPU
+
+Use the [complete app notebook](notebooks/Sketch2Shape_App_Colab.ipynb) and [Colab guide](docs/COLAB.md). Select a T4 GPU, run cells 1–3, and open **Open Sketch2Shape AI**. The existing frontend and both model workers run together on Colab; your laptop only needs a browser. Upload/draw and download the real GLB through the same interface.
+
+The default private Colab preview needs no public tunnel. An optional password-protected temporary Gradio link can be requested in the notebook. Runtime availability/quotas vary, and full pretrained GPU acceptance remains unverified here. No Windows Python/GPU setup is needed for this workflow.
+
 ## Architecture
 
 ```text

@@ -6,7 +6,7 @@ Date: 1 November 2026 (Asia/Kolkata). Branch: `codex/sketch2shape-app`.
 
 | Check | Actual result |
 |---|---|
-| Offline automated suite | **91 passed, 2 optional ML checks skipped, 12 subtests passed, 0 failed** |
+| Offline automated suite | **110 passed, 2 optional ML checks skipped, 12 subtests passed, 0 failed** |
 | Python compilation (`app.py`, `backend`, `tests`) | Passed |
 | UI environment `pip check` | No broken requirements |
 | Gradio import and component initialization | Passed, Gradio **6.31.0**, 55 components |
@@ -79,3 +79,18 @@ The user supplied an actual GPU log: all seven pipeline components loaded, then 
 The update preserves default PyTorch SDPA on CUDA, adds validated 256/384/512 refinement-size selection, and starts low-memory UI at 256px/CFG 1. Standard defaults remain 512px/CFG 7. Tests verify conditioning resize, requested size/CFG forwarding, PNG size and metadata validation, and separate CUDA versus host-memory error classification. An actual tiny random-weight ControlNet instance verifies the installed Diffusers defaults use `AttnProcessor2_0`; no pretrained weights are downloaded by this test.
 
 Current results: **91 primary tests passed, 2 optional ML checks skipped, 12 subtests passed**; **74 backend tests and 12 subtests passed** in the separate CPU ML environment. The suites overlap. Live HTTP checks confirm low-memory UI defaults of 256px and CFG 1, and the dependency failure path still clears every artifact slot. Compilation passes. The attention change has not been acceptance-tested on a CUDA GPU here, so the reported laptop OOM is not claimed resolved until a fresh user run succeeds.
+
+## Complete Colab frontend integration
+
+Added a full-app Colab notebook with 13 cells, isolated UI/ML setup, guarded Python 3.12/bootstrap paths, preserved runtime CUDA torch, private proxy access by default, optional authenticated native sharing, matched-job ZIP download, logs and owned-server shutdown. The existing generation callbacks still call the original model workers on the same machine. The notebook has no local-Windows inference dependency.
+
+Validation:
+
+- **110 primary tests passed, 2 optional ML checks skipped, 12 subtests passed**. This includes **19 Colab orchestration tests** without downloads or GPU allocation.
+- The unchanged separate CPU backend suite previously passed **74 tests and 12 subtests**; counts overlap and are not a combined total.
+- Notebook code cells parse as Python, have unique IDs and empty saved outputs. Proxy access is the default; automatic ZIP download and shutdown are disabled during Run all.
+- Tests cover missing GPU, interpreter/bootstrap behavior, venv policy mismatches, preservation of installed CUDA torch, nested-kernel-venv handling, pinned upstream checkout preservation, secret-free runtime manifests, authenticated sharing arguments/guard, port collisions, own-process reuse/termination, and validation/containment of exported job artifacts. GPU/runtime behavior is mocked in these orchestration tests; they are not model acceptance tests.
+- Live Linux HTTP smoke checks through `AppServer` passed for `/`, `/config`, and `/gradio_api/info`; forwarded HTTPS host handling produced the correct frontend/file root. No external share link was requested. The owned server stopped successfully.
+- Python compilation and whitespace checks pass. No pretrained model weights were downloaded by these checks.
+
+**Not executed here:** a live Google Colab GPU setup, Google's private port proxy, an external Gradio share tunnel, or full pretrained sketch→PNG→GLB inference. These require the user's actual Colab session. Setup/package checks and local HTTP behavior do not establish GPU model fit, semantic reconstruction quality or Colab quota/network availability.
