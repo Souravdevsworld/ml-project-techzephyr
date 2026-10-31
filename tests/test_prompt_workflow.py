@@ -101,10 +101,10 @@ class PromptWorkflowTests(unittest.TestCase):
         self.assertIs(state['active'], newer)
         self.assertIsNone(state['model'])
 
-    def test_both_actions_share_single_queue(self):
+    def test_generation_action_uses_single_queue(self):
         demo = app.build_app()
-        jobs = [fn for fn in demo.fns.values() if fn.fn is app.run_request]
-        self.assertEqual(len(jobs), 2)
+        jobs = [fn for fn in demo.fns.values() if fn.fn is app.finish_photo]
+        self.assertEqual(len(jobs), 1)
         self.assertTrue(all(fn.concurrency_id == 'inference' and fn.concurrency_limit == 1 for fn in jobs))
 
     def test_different_sessions_cannot_overlap_inference(self):

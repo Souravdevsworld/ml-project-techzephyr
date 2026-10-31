@@ -91,7 +91,6 @@ def generate(sketch, upload, source, prompt, progress=gr.Progress()):
     except Exception as exc:
         logger.exception("Generation failed")
         message = str(exc) if isinstance(exc, (ValueError, RuntimeError)) else "Generation failed. Check the server logs and try again."
-        gr.Warning(message)
         yield None, None, f"⚠ {message}"
 
 
@@ -183,7 +182,7 @@ def run_request(session, progress=gr.Progress()):
             session["model"] = model
             session["original"] = request["image"]
             session["error"] = None
-            message = "✓ SF3D model ready. Text prompts are not used by SF3D."
+            message = "✓ SF3D model ready."
         else:
             session["error"] = message
             if session["model"]:
@@ -193,6 +192,25 @@ def run_request(session, progress=gr.Progress()):
         return (session["model"], session["model"], session["previous"],
                 session["original"], message, gr.update(interactive=True),
                 gr.update(interactive=session["original"] is not None))
+
+
+def submit_photo(upload, session):
+    """Single visible action: SF3D has no text prompt or mesh-edit operation."""
+    state, status, button, _, _ = submit_upload(upload, "", session)
+    if session["active"] is not None:
+        status = "⏳ Creating your 3D model. Please wait; CPU reconstruction can take a few minutes."
+    return state, status, button
+
+
+def finish_photo(session):
+    viewer, path, _, _, status, button, _ = run_request(session)
+    if isinstance(path, str):
+        download = gr.update(value=path, visible=True)
+    elif path is None:
+        download = gr.update(value=None, visible=False)
+    else:
+        download = gr.skip()
+    return viewer, download, status, button
 
 
 CSS = """
@@ -222,29 +240,18 @@ def build_app():
             with gr.Column(scale=1, min_width=320, elem_classes="panel"):
                 gr.Markdown("### 01 / Upload your image\nUse a clear photo of one object, with the full object visible.")
                 upload = gr.Image(label="Upload PNG or JPG", type="pil", sources=["upload"], height=370)
-                prompt = gr.Textbox(label="Appearance · optional", placeholder="e.g. A matte ceramic vase with soft, rounded edges", lines=2, max_length=1000)
-                gr.Markdown("Prompt is optional and is passed to the backend. SF3D reconstructs from the image and does not use text prompts.")
-                pending = gr.Textbox(label="Pending prompt edit", value="No pending prompt edit.", interactive=False, lines=2)
                 generate_button = gr.Button("Generate 3D  →", variant="primary", elem_id="generate")
             with gr.Column(scale=1, min_width=320, elem_classes="panel"):
                 gr.Markdown("### 02 / Explore your creation\nDrag to orbit · Scroll to zoom")
                 viewer = gr.Model3D(label="3D workspace", height=460, clear_color=(0.04, 0.06, 0.1, 1))
                 status = gr.Markdown("Ready when you are. Upload an image to begin.", elem_id="status")
-                download = gr.File(label="Download GLB", interactive=False)
-                regenerate_button = gr.Button("Regenerate 3D", interactive=False)
-                gr.Markdown("Regeneration creates a new model from the saved original image. It does not edit the existing mesh.")
-                with gr.Accordion("Original image & previous successful model", open=False):
-                    original = gr.Image(label="Saved original image", interactive=False, type="pil")
-                    previous = gr.Model3D(label="Previous successful model", height=280)
-        gr.Markdown("**Image → Shape → Explore** &nbsp; · &nbsp; Built for ideas in the making. GLB files work with Blender and other 3D tools.")
-        prompt.change(pending_prompt, [prompt, session], pending, queue=False, trigger_mode="always_last")
-        admission_outputs = [session, status, generate_button, regenerate_button, pending]
-        result_outputs = [viewer, download, previous, original, status, generate_button, regenerate_button]
-        for event in (
-            generate_button.click(submit_upload, [upload, prompt, session], admission_outputs, queue=False, trigger_mode="once"),
-            regenerate_button.click(submit_regeneration, [prompt, session], admission_outputs, queue=False, trigger_mode="once"),
-        ):
-            event.success(run_request, session, result_outputs, concurrency_id="inference", concurrency_limit=1, show_progress="full")
+                download = gr.DownloadButton("Download GLB", visible=False)
+        submission = generate_button.click(
+            submit_photo, [upload, session], [session, status, generate_button],
+            queue=False, trigger_mode="once", show_progress="hidden")
+        submission.success(
+            finish_photo, session, [viewer, download, status, generate_button],
+            concurrency_id="inference", concurrency_limit=1, show_progress="hidden")
     return demo.queue(default_concurrency_limit=1)
 
 
