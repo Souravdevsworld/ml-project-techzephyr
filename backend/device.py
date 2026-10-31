@@ -41,7 +41,9 @@ def mesh_backend():
 ERROR_MESSAGES = {
     "dependency": "An ML dependency is missing or incompatible. Install the separate ML environment and run python -m backend.doctor.",
     "cuda": "CUDA was selected but PyTorch cannot use it. Check the NVIDIA driver and CUDA-enabled PyTorch, or choose CPU.",
-    "memory": "Inference ran out of memory. Enable low-memory mode and lower mesh resolution; CPU mode also needs enough system RAM.",
+    "memory": "Inference ran out of memory. For refinement, try a smaller refinement image and CFG 1; mesh resolution affects reconstruction only. The log distinguishes device/model-loading failures. CPU mode also needs enough system RAM.",
+    "cuda_memory": "CUDA memory allocation failed. For refinement, try a 256px refinement image, CFG 1 and low-memory mode. Mesh resolution affects reconstruction only. Check other GPU workloads and the job log.",
+    "host_memory": "System memory allocation failed. Smaller images do not reduce model-weight memory; CPU inference also requires substantial RAM. Check the job log and available system memory.",
     "files": "Model or file access failed. Check the job log for missing weights, network access, disk space, or file permissions.",
     "inference": "Model inference failed. Check this job's log for the underlying error.",
 }
@@ -54,8 +56,10 @@ def error_code(exc):
         message = str(exc).lower()
         if isinstance(exc, (ImportError,)) or "incompatible sketch environment" in message:
             return "dependency"
+        if isinstance(exc, MemoryError) or "defaultcpuallocator" in message:
+            return "host_memory"
         if "outofmemory" in type(exc).__name__.lower() or "out of memory" in message:
-            return "memory"
+            return "cuda_memory" if "cuda" in message else "memory"
         if "cuda was selected" in message:
             return "cuda"
         if isinstance(exc, OSError):

@@ -37,8 +37,9 @@ def workers(tmp_path, monkeypatch):
         if stage == 'refine':
             artifacts = preprocess_sketch(request['input'], str(directory))
             output = Path(artifacts.directory) / 'refined.png'
-            image = Image.new('RGB',(512,512),'white')
-            ImageDraw.Draw(image).ellipse((120,90,390,450),fill='brown')
+            size=int(kwargs['env'].get('SKETCH_IMAGE_SIZE','512'))
+            image = Image.new('RGB',(size,size),'white')
+            ImageDraw.Draw(image).ellipse((size//4,size//4,3*size//4,3*size//4),fill='brown')
             image.save(output)
         else:
             output = directory / 'generated.glb'
@@ -206,3 +207,24 @@ def test_specific_worker_error_points_to_job_log(input_image,workers):
         raise WorkerError('worker failed')
     with patch.object(pipeline,'run_worker',side_effect=fail),pytest.raises(WorkerError,match='ML dependency.*outputs/jobs/'):
         pipeline.generate_result(input_image)
+
+
+def test_low_resolution_result_and_metadata(input_image,workers):
+    settings=pipeline.GenerationSettings(refinement_size=256,guidance_scale=1,low_memory=True)
+    result=pipeline.generate_result(input_image,settings=settings)
+    assert Image.open(result.refined).size==(256,256)
+    assert workers[0][2]['env']['SKETCH_IMAGE_SIZE']=='256'
+    metadata=json.loads(Path(result.metadata).read_text())
+    assert metadata['settings']['refinement_size']==256
+    assert metadata['settings']['guidance_scale']==1
+
+
+def test_wrong_size_result_is_still_rejected(input_image,workers):
+    original=pipeline.run_worker
+    def wrong_size(*args,**kwargs):
+        original(*args,**kwargs)
+        response=Path(json.loads(Path(args[0][-1]).read_text())['response'])
+        path=Path(json.loads(response.read_text())['output'])
+        Image.new('RGB',(512,512),'red').save(path)
+    with patch.object(pipeline,'run_worker',side_effect=wrong_size),pytest.raises(ValueError,match='256×256'):
+        pipeline.generate_result(input_image,settings=pipeline.GenerationSettings(refinement_size=256))

@@ -65,6 +65,7 @@ class RefinementSettings:
     guidance_scale: float = 7.0
     conditioning_scale: float = 1.0
     negative_prompt: str = "duplicate objects, text, watermark, blurry, distorted geometry"
+    image_size: int = 512
 
     @classmethod
     def from_environment(cls):
@@ -75,6 +76,7 @@ class RefinementSettings:
                 guidance_scale=float(os.environ.get("SKETCH_CFG", "7.0")),
                 conditioning_scale=float(os.environ.get("SKETCH_CONTROL_STRENGTH", "1.0")),
                 negative_prompt=os.environ.get("SKETCH_NEGATIVE_PROMPT", cls.negative_prompt),
+                image_size=int(os.environ.get("SKETCH_IMAGE_SIZE", "512")),
             )
         except ValueError:
             raise ValueError("Sketch seed/steps must be integers and guidance/strength numeric") from None
@@ -84,6 +86,8 @@ class RefinementSettings:
             raise ValueError("SKETCH_CFG must be finite and between 1 and 20")
         if not math.isfinite(settings.conditioning_scale) or not 0.1 <= settings.conditioning_scale <= 2:
             raise ValueError("SKETCH_CONTROL_STRENGTH must be finite and between 0.1 and 2")
+        if settings.image_size not in {256, 384, 512}:
+            raise ValueError("SKETCH_IMAGE_SIZE must be 256, 384, or 512")
         return settings
 
 
@@ -98,7 +102,7 @@ def _generate_image(conditioning: Image.Image, prompt: str, settings: Refinement
     small = low_memory()
     pipe = None
     try:
-        logger.info("Loading Scribble ControlNet and SD 1.5 on %s (low_memory=%s); first use downloads weights", device, small)
+        logger.info("Loading Scribble ControlNet and SD 1.5 on %s (low_memory=%s, image=%d, CFG=%s); first use downloads weights", device, small, settings.image_size, settings.guidance_scale)
         if device == "cpu":
             logger.warning("CPU uses FP32 and substantial system RAM; an 8 GB host may not fit these models.")
         # FP16 checkpoint files reduce download size; CPU converts them to FP32.
@@ -116,14 +120,23 @@ def _generate_image(conditioning: Image.Image, prompt: str, settings: Refinement
                 pipe.enable_model_cpu_offload(gpu_id=0)
         else:
             pipe.to("cpu")
-        if small or device == "cpu":
+        # Diffusers uses AttnProcessor2_0 by default on this PyTorch stack.
+        # Enabling slicing replaces SDPA with SlicedAttnProcessor, which
+        # materializes attention-score matrices (the reported CUDA OOM site).
+        functional = getattr(getattr(torch, "nn", None), "functional", None)
+        cuda_sdpa = device == "cuda" and callable(getattr(functional, "scaled_dot_product_attention", None))
+        if (small or device == "cpu") and not cuda_sdpa:
             pipe.enable_attention_slicing("max")
+        if cuda_sdpa:
+            logger.info("Keeping PyTorch SDPA attention on CUDA")
         pipe.enable_vae_tiling()
         pipe.enable_vae_slicing()
         generator = torch.Generator(device="cpu").manual_seed(settings.seed)
+        conditioning = conditioning.resize((settings.image_size, settings.image_size), Image.Resampling.LANCZOS)
+        logger.info("Starting diffusion image generation")
         with torch.inference_mode():
             result = pipe(prompt=prompt, negative_prompt=settings.negative_prompt,
-                          image=conditioning, width=512, height=512,
+                          image=conditioning, width=settings.image_size, height=settings.image_size,
                           num_inference_steps=settings.steps, guidance_scale=settings.guidance_scale,
                           controlnet_conditioning_scale=settings.conditioning_scale,
                           generator=generator, num_images_per_prompt=1, guess_mode=False)
@@ -160,15 +173,16 @@ def refine_sketch(sketch_path: str, prompt: str, output_dir: str | None = None) 
         inference_started = time.perf_counter()
         result = _generate_image(conditioning, prompt, settings)
         inference_seconds = time.perf_counter() - inference_started
-        if not isinstance(result, Image.Image) or result.size != (512, 512):
-            raise RefinementError("Inference did not return a 512x512 image")
+        expected_size = (settings.image_size, settings.image_size)
+        if not isinstance(result, Image.Image) or result.size != expected_size:
+            raise RefinementError(f"Inference did not return a {settings.image_size}x{settings.image_size} image")
         result = result.convert("RGB")
         if all(low == high for low, high in result.getextrema()):
             raise RefinementError("Inference returned a uniform image; no usable refinement")
         result.save(partial, format="PNG")
         with Image.open(partial) as saved:
-            if saved.format != "PNG" or saved.size != (512, 512):
-                raise RefinementError("Saved output is not a valid 512x512 PNG")
+            if saved.format != "PNG" or saved.size != expected_size:
+                raise RefinementError(f"Saved output is not a valid {settings.image_size}x{settings.image_size} PNG")
             saved.verify()
         partial.replace(target)
         versions = {}
@@ -182,7 +196,7 @@ def refine_sketch(sketch_path: str, prompt: str, output_dir: str | None = None) 
         (directory / "generation.json").write_text(json.dumps({
             "status": "success", "prompt": prompt, **asdict(settings),
             "base_model": BASE_MODEL, "controlnet_model": CONTROLNET_MODEL,
-            "scheduler": "UniPCMultistepScheduler", "size": [512, 512],
+            "scheduler": "UniPCMultistepScheduler", "size": list(expected_size),
             "device": actual_device, "dtype": "float16" if actual_device == "cuda" else "float32",
             "cpu_offload": actual_device == "cuda", "low_memory": low_memory(), "inference_seconds": inference_seconds,
             "total_seconds": time.perf_counter() - started, "packages": versions,

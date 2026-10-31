@@ -85,7 +85,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-local-windows.ps1 -Devi
 
 The script configures separate UI/ML environments, installs CUDA PyTorch only if missing, configures the workers, and uses scikit-image density-to-mesh extraction without compiling a CUDA extension. Later starts use `scripts/start-local-windows.ps1 -Device cuda`.
 
-The RTX 2050 reported by the user has **4 GB VRAM**, separate from **8 GB system RAM**. `--low-memory` starts the UI with sequential CPU offload on CUDA, attention slicing, 12 diffusion steps, mesh resolution 64 and smaller reconstruction chunks. These settings may reduce quality/increase time; they have not been acceptance-tested on that GPU.
+The RTX 2050 reported by the user has **4 GB VRAM**, separate from **8 GB system RAM**. `--low-memory` starts the UI with sequential CPU offload on CUDA, 256×256 refinement, CFG 1, 12 diffusion steps, mesh resolution 64 and smaller reconstruction chunks. CUDA keeps PyTorch SDPA attention instead of replacing it with legacy sliced attention. These settings may reduce quality/increase time; they have not been acceptance-tested on that GPU. Refinement-size/CFG controls reduce generation activations, while mesh resolution only affects reconstruction and neither shrinks the model weights.
 
 To request CPU execution instead, use the same scripts with `-Device cpu`, or `python app.py --device cpu --low-memory` after configuring the ML interpreter paths. CPU uses FP32 diffusion and no CUDA calls; it still needs the model weights and substantial system RAM. **The complete sketch pipeline may not fit in 8 GB RAM.** CPU mode is an option for a machine with sufficient memory, not a memory-free workaround.
 

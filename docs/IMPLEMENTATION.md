@@ -52,3 +52,7 @@ The user supplied an RTX 2050 diagnostic showing 4 GB VRAM and reported 8 GB sys
 ## Project-drive storage follow-up
 
 After a Windows CUDA-wheel download failed with `ENOSPC` on C:, both Windows helpers now source `scripts/local-storage-windows.ps1` before invoking Python. Temporary files and pip/model/Gradio/rembg caches are directed to ignored `work/` folders beside the checkout. Scripted installs disable pip's retained wheel cache. A D: checkout therefore keeps these large files on D:, including on later launches; no original checkout, existing cache or user data is deleted. PowerShell execution remains unverified on Windows in this Linux environment.
+
+## Refinement attention-memory follow-up
+
+The next user log shows successful weight loading, then a CUDA allocation failure at the first ControlNet attention step inside `SlicedAttnProcessor` / `torch.baddbmm`. Low-memory CUDA now preserves PyTorch SDPA rather than calling `enable_attention_slicing`, which replaces the default SDPA processor with legacy sliced attention. The profile also starts at 256px refinement and CFG 1 to reduce activations/batch size; standard 512px/CFG 7 behavior remains selectable. PNG size checks and metadata match the requested resolution. CUDA and host allocation errors are classified separately. These changes reduce the reported attention allocation pressure but do not establish successful inference on the user's GPU.

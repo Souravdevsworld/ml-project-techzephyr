@@ -6,10 +6,10 @@ Date: 1 November 2026 (Asia/Kolkata). Branch: `codex/sketch2shape-app`.
 
 | Check | Actual result |
 |---|---|
-| Offline automated suite | **83 passed, 1 optional CPU-meshing module skipped, 12 subtests passed, 0 failed** |
+| Offline automated suite | **91 passed, 2 optional ML checks skipped, 12 subtests passed, 0 failed** |
 | Python compilation (`app.py`, `backend`, `tests`) | Passed |
 | UI environment `pip check` | No broken requirements |
-| Gradio import and component initialization | Passed, Gradio **6.31.0**, 52 components |
+| Gradio import and component initialization | Passed, Gradio **6.31.0**, 55 components |
 | Actual application launch | Passed on `127.0.0.1:7860`; final smoke also passed on port 7861 |
 | HTTP `/` | 200 |
 | HTTP `/config` | 200, correct Sketch2Shape AI title and component configuration |
@@ -65,9 +65,17 @@ No fresh output example or inference timing has been invented. The existing `exa
 ## CPU and low-memory follow-up checks
 
 - User-supplied Windows log: `ModuleNotFoundError: No module named torch` before model/GPU work. NVIDIA diagnostic shows RTX 2050, 4096 MiB VRAM, driver 581.57.
-- UI/offline environment: **83 tests passed**, **12 subtests passed**; one module intentionally skipped because torch/skimage are not installed in the lightweight UI environment.
-- Separate actual Linux CPU ML environment: **65 backend tests passed**, **12 subtests passed**, including both actual CPU meshing/runner tests; these overlap the primary suite and must not be added as a combined total.
+- UI/offline environment: **91 tests passed**, **12 subtests passed**; two optional ML checks intentionally skipped because the lightweight UI environment has no torch/skimage/Diffusers.
+- Separate actual Linux CPU ML environment: **74 backend tests passed**, **12 subtests passed**, including both actual CPU meshing/runner tests; these overlap the primary suite and must not be added as a combined total.
 - Installed `torch==2.11.0+cpu` plus `backend/requirements-local.txt` in the isolated CPU environment. `pip check` passes there and in the unchanged UI environment. Diffusers classes import and both doctor CPU probes pass with no CUDA and no weights.
 - Tests check FP32 CPU versus FP16 CUDA configuration, automatic/explicit devices, no CUDA allocation/offload calls in the CPU path, sequential offload on low-memory CUDA, per-worker device settings, extended timeouts, dependency/error routing, and actual scikit-image extraction of synthetic density.
 - The pinned official TripoSR `run.py --help` is exercised through the new runner to verify imports without downloading neural model weights.
 - Windows PowerShell scripts have been reviewed but cannot be executed in this Linux environment. Actual RTX 2050 memory fit, Windows acceptance, and complete pretrained CPU/GPU inference remain unverified. CPU mode may not fit in 8 GB system RAM.
+
+## Refinement CUDA allocation follow-up
+
+The user supplied an actual GPU log: all seven pipeline components loaded, then the first of 12 diffusion steps failed in ControlNet self-attention (`SlicedAttnProcessor` → `torch.baddbmm`) with a 32 MiB CUDA allocation error on the RTX 2050. This is evidence of successful weight loading followed by a failed inference, not successful model generation.
+
+The update preserves default PyTorch SDPA on CUDA, adds validated 256/384/512 refinement-size selection, and starts low-memory UI at 256px/CFG 1. Standard defaults remain 512px/CFG 7. Tests verify conditioning resize, requested size/CFG forwarding, PNG size and metadata validation, and separate CUDA versus host-memory error classification. An actual tiny random-weight ControlNet instance verifies the installed Diffusers defaults use `AttnProcessor2_0`; no pretrained weights are downloaded by this test.
+
+Current results: **91 primary tests passed, 2 optional ML checks skipped, 12 subtests passed**; **74 backend tests and 12 subtests passed** in the separate CPU ML environment. The suites overlap. Live HTTP checks confirm low-memory UI defaults of 256px and CFG 1, and the dependency failure path still clears every artifact slot. Compilation passes. The attention change has not been acceptance-tested on a CUDA GPU here, so the reported laptop OOM is not claimed resolved until a fresh user run succeeds.

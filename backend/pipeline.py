@@ -36,6 +36,7 @@ class GenerationSettings:
     remove_background: bool = True
     device: str = field(default_factory=requested_device)
     low_memory: bool = field(default_factory=low_memory)
+    refinement_size: int = 512
 
     def validate(self):
         for name, value, low, high in (
@@ -56,6 +57,8 @@ class GenerationSettings:
             raise ValueError("Choose auto, cpu, or cuda for the execution device.")
         if not isinstance(self.low_memory, bool):
             raise ValueError("Low-memory mode must be enabled or disabled.")
+        if isinstance(self.refinement_size, bool) or self.refinement_size not in {256, 384, 512}:
+            raise ValueError("Refinement image size must be 256, 384, or 512.")
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,7 @@ def _stage(stage, image, prompt, job, settings):
                 "TRIPOSR_REMOVE_BG": str(settings.remove_background).lower(),
                 "SKETCH2SHAPE_DEVICE": settings.device,
                 "SKETCH2SHAPE_LOW_MEMORY": str(settings.low_memory).lower()})
+    env["SKETCH_IMAGE_SIZE"] = str(int(settings.refinement_size))
     default_timeout = "7200" if settings.device == "cpu" or settings.low_memory else "1800"
     env.setdefault("TRIPOSR_TIMEOUT_SECONDS", default_timeout)
     if settings.low_memory:
@@ -123,10 +127,10 @@ def _stage(stage, image, prompt, job, settings):
     return output, result
 
 
-def _validate_refinement(path):
+def _validate_refinement(path, size=512):
     with Image.open(path) as image:
-        if image.format != "PNG" or image.size != (512, 512):
-            raise ValueError("Refinement did not produce a valid 512×512 PNG.")
+        if image.format != "PNG" or image.size != (size, size):
+            raise ValueError(f"Refinement did not produce a valid {size}×{size} PNG.")
         image.verify()
     with Image.open(path) as image:
         if all(low == high for low, high in image.convert("RGB").getextrema()):
@@ -166,7 +170,7 @@ def generate_result(image, prompt=None, *, mode="Sketch to 3D", settings=None, p
             if mode == "Sketch to 3D":
                 progress("Preprocessing sketch and running ControlNet / Stable Diffusion")
                 refined_path, info = _stage("refine", source, effective_prompt, job, settings)
-                _validate_refinement(refined_path)
+                _validate_refinement(refined_path, settings.refinement_size)
                 # The worker only returns after exiting: refinement allocations are gone.
                 cleaned = str(refined_path.parent / "cleaned.png")
                 conditioning = str(refined_path.parent / "conditioning.png")

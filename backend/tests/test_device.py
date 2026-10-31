@@ -19,6 +19,7 @@ def fake_torch(cuda=False):
                                    get_device_name=MagicMock(return_value='offline GPU'),
                                    get_device_properties=MagicMock(return_value=types.SimpleNamespace(total_memory=4*1024**3))),
         float16='fp16',float32='fp32',Generator=MagicMock(),
+        nn=types.SimpleNamespace(functional=types.SimpleNamespace(scaled_dot_product_attention=lambda: None)),
         inference_mode=lambda: nullcontext(), __version__='2.11.0+cpu',
         version=types.SimpleNamespace(cuda=None))
 
@@ -80,12 +81,15 @@ def test_inference_precision_and_offload_match_device(monkeypatch,requested,cuda
         pipe.enable_model_cpu_offload.assert_not_called()
         pipe.enable_sequential_cpu_offload.assert_not_called()
         torch.cuda.empty_cache.assert_not_called()
+        pipe.enable_attention_slicing.assert_called_once_with('max')
     elif small:
         pipe.enable_sequential_cpu_offload.assert_called_once_with(gpu_id=0)
         pipe.enable_model_cpu_offload.assert_not_called()
     else:
         pipe.enable_model_cpu_offload.assert_called_once_with(gpu_id=0)
         pipe.enable_sequential_cpu_offload.assert_not_called()
+    if dtype=='fp16':
+        pipe.enable_attention_slicing.assert_not_called()
     pipe.enable_vae_tiling.assert_called_once()
 
 
@@ -113,4 +117,55 @@ def test_wrapped_oom_is_classified_without_exposing_log_contents():
     inner=RuntimeError('CUDA out of memory')
     outer=RuntimeError('wrapped')
     outer.__cause__=inner
-    assert device.error_code(outer)=='memory'
+    assert device.error_code(outer)=='cuda_memory'
+
+
+def test_cpu_allocation_failure_is_distinct():
+    assert device.error_code(MemoryError())=='host_memory'
+    assert device.error_code(RuntimeError('DefaultCPUAllocator: not enough memory'))=='host_memory'
+
+
+def test_small_refinement_resizes_conditioning_and_forwards_cfg_one(monkeypatch):
+    monkeypatch.setenv('SKETCH2SHAPE_DEVICE','cuda')
+    monkeypatch.setenv('SKETCH2SHAPE_LOW_MEMORY','true')
+    torch=fake_torch(True)
+    pipe=MagicMock()
+    pipe.scheduler.config={}
+    pipe.return_value=types.SimpleNamespace(nsfw_content_detected=[False],images=[Image.new('RGB',(256,256),'red')])
+    model=MagicMock()
+    model.from_pretrained.return_value=pipe
+    diffusers=types.SimpleNamespace(ControlNetModel=MagicMock(),StableDiffusionControlNetPipeline=model,UniPCMultistepScheduler=MagicMock())
+    settings=sketch_refiner.RefinementSettings(guidance_scale=1,image_size=256)
+    with patch.dict(sys.modules,torch=torch,diffusers=diffusers),patch.object(sketch_refiner,'check_refinement_environment',return_value={}):
+        result=sketch_refiner._generate_image(Image.new('RGB',(512,512)),'chair',settings)
+    assert result.size==(256,256)
+    kwargs=pipe.call_args.kwargs
+    assert kwargs['width']==kwargs['height']==256
+    assert kwargs['image'].size==(256,256)
+    assert kwargs['guidance_scale']==1
+    pipe.enable_attention_slicing.assert_not_called()
+
+
+@pytest.mark.parametrize('size',[256,384,512])
+def test_supported_refinement_sizes_from_environment(monkeypatch,size):
+    monkeypatch.setenv('SKETCH_IMAGE_SIZE',str(size))
+    assert sketch_refiner.RefinementSettings.from_environment().image_size==size
+
+
+def test_unsupported_refinement_size_rejected(monkeypatch):
+    monkeypatch.setenv('SKETCH_IMAGE_SIZE','128')
+    with pytest.raises(ValueError,match='SKETCH_IMAGE_SIZE'):
+        sketch_refiner.RefinementSettings.from_environment()
+
+
+def test_actual_diffusers_controlnet_defaults_to_sdpa():
+    # Random tiny architecture only: no pretrained weights or network access.
+    diffusers=pytest.importorskip('diffusers')
+    from diffusers.models.attention_processor import AttnProcessor2_0
+    model=diffusers.ControlNetModel(
+        in_channels=4,conditioning_channels=3,
+        down_block_types=('CrossAttnDownBlock2D','DownBlock2D'),
+        block_out_channels=(16,32),norm_num_groups=4,
+        cross_attention_dim=32,attention_head_dim=2)
+    assert model.attn_processors
+    assert all(isinstance(processor,AttnProcessor2_0) for processor in model.attn_processors.values())

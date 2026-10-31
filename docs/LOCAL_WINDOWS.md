@@ -71,7 +71,21 @@ The script:
 
 Open `http://127.0.0.1:7860`. First generation downloads the actual model weights, which require several GB of disk space and model-host access.
 
-The local profile starts at **12 diffusion steps**, **mesh resolution 64**, **TripoSR chunk size 256**, and **sequential CPU offload** for diffusion on CUDA. This reduces VRAM pressure and may lower detail/increase runtime. All stages still run sequentially. Eight GB of system RAM remains tight: this is an attempt to fit the models, not a tested guarantee on this laptop. Close other memory-heavy applications before trying.
+The local profile starts at **256×256 refinement**, **CFG 1**, **12 diffusion steps**, **mesh resolution 64**, **TripoSR chunk size 256**, and **sequential CPU offload** for diffusion on CUDA. PyTorch SDPA attention is preserved on CUDA instead of replacing it with legacy sliced attention. CFG 1 avoids classifier-free guidance's doubled latent batch. Smaller refinement images reduce attention memory but may reduce fidelity; model weights still occupy the same memory. All stages run sequentially. Eight GB of system RAM remains tight: these are lower-memory settings, not a tested guarantee on this laptop.
+
+### If refinement runs out of CUDA memory
+
+The reported job successfully loaded all model components, then failed at the first ControlNet self-attention call in legacy `SlicedAttnProcessor` / `torch.baddbmm`. The log reported a 32 MiB CUDA allocation failure. The current update keeps memory-efficient SDPA on CUDA and adds 256/384/512 refinement-size selection with matching PNG validation and recorded settings.
+
+Stop the app, update the D: clone, and restart (no dependency reinstall or model redownload is required):
+
+```powershell
+cd D:\Sketch2Shape
+git pull --ff-only
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-windows.ps1 -Device cuda
+```
+
+In Advanced settings, check **refinement image size 256**, **CFG 1**, and **Use less GPU memory**. Lowering mesh resolution only affects the later TripoSR reconstruction; it cannot fix a ControlNet/refinement OOM. Fewer diffusion steps primarily reduce runtime, not per-step attention memory. If the CUDA allocation still fails, inspect the new log before changing more settings. Do not assume CPU mode fits in 8 GB system RAM. Higher resolution or CFG can be retried after a successful run, with additional memory use.
 
 For later starts, no installation is needed:
 

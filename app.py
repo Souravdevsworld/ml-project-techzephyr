@@ -54,7 +54,7 @@ def pending_prompt(prompt, session):
 
 def submit_request(sketch, upload, source, prompt, session, mode="Sketch to 3D",
                    seed=42, steps=20, cfg=7.0, strength=1.0, resolution=128,
-                   remove_bg=True, device="auto", small_memory=False, regenerate=False):
+                   remove_bg=True, device="auto", small_memory=False, refinement_size=512, regenerate=False):
     """Snapshot pixels and settings before queueing; clear all previous results."""
     with SESSION_LOCK:
         if session["active"] is not None:
@@ -63,7 +63,7 @@ def submit_request(sketch, upload, source, prompt, session, mode="Sketch to 3D",
         try:
             if mode not in {"Sketch to 3D", "Image to 3D"}:
                 raise ValueError("Choose a generation mode.")
-            settings = GenerationSettings(seed, steps, cfg, strength, resolution, remove_bg, device, small_memory)
+            settings = GenerationSettings(seed, steps, cfg, strength, resolution, remove_bg, device, small_memory, refinement_size)
             settings.validate()
             value = session["original"] if regenerate else (upload if mode == "Image to 3D" or source == "Upload" else sketch)
             if regenerate and value is None:
@@ -96,9 +96,9 @@ def submit_request(sketch, upload, source, prompt, session, mode="Sketch to 3D",
 
 
 def submit_regeneration(prompt, session, mode, seed, steps, cfg, strength, resolution, remove_bg,
-                        device="auto", small_memory=False):
+                        device="auto", small_memory=False, refinement_size=512):
     return submit_request(None, None, None, prompt, session, mode, seed, steps, cfg,
-                          strength, resolution, remove_bg, device, small_memory, regenerate=True)
+                          strength, resolution, remove_bg, device, small_memory, refinement_size, regenerate=True)
 
 
 def run_request(session, progress=gr.Progress()):
@@ -216,9 +216,11 @@ def build_app():
                     seed = gr.Number(value=42, precision=0, minimum=0, maximum=2**32-1, label="Random seed")
                     device = gr.Dropdown(["auto", "cuda", "cpu"], value=requested_device(), label="Execution device · auto prefers CUDA")
                     small_memory = gr.Checkbox(value=small, label="Use less GPU memory · slower")
+                    refinement_size = gr.Dropdown([256, 384, 512], value=256 if small else 512, label="Refinement image size · sketch mode")
                     gr.Markdown("On a 4 GB GPU, enable this option and start with mesh resolution 64. CPU runs without a GPU but may not fit in 8 GB system RAM.")
                     steps = gr.Slider(1, 100, value=12 if small else 20, step=1, label="Diffusion steps · sketch mode")
-                    cfg = gr.Slider(1, 20, value=7, step=0.5, label="CFG guidance · sketch mode")
+                    cfg = gr.Slider(1, 20, value=1 if small else 7, step=0.5, label="CFG guidance · sketch mode")
+                    gr.Markdown("CFG 1 disables classifier-free guidance's doubled batch. Smaller refinement images reduce generation memory and may reduce quality. These settings do not shrink the model weights.")
                     strength = gr.Slider(0.1, 2, value=1, step=0.1, label="ControlNet strength · sketch mode")
                     resolution = gr.Slider(16, 512, value=64 if small else 128, step=16, label="TripoSR mesh resolution")
                     remove_bg = gr.Checkbox(value=True, label="Remove image background before reconstruction")
@@ -256,7 +258,7 @@ def build_app():
         output_artifacts = [viewer, download, original, cleaned, conditioning, refined, artifacts]
         admission_outputs = [session, status, generate_button, regenerate_button, pending, *output_artifacts]
         result_outputs = [*output_artifacts, status, generate_button, regenerate_button]
-        advanced = [mode, seed, steps, cfg, strength, resolution, remove_bg, device, small_memory]
+        advanced = [mode, seed, steps, cfg, strength, resolution, remove_bg, device, small_memory, refinement_size]
         for event in (
             generate_button.click(submit_request, [sketch, upload, source, prompt, session, *advanced], admission_outputs, queue=False, trigger_mode="once"),
             regenerate_button.click(submit_regeneration, [prompt, session, *advanced], admission_outputs, queue=False, trigger_mode="once"),
@@ -270,7 +272,7 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--device", choices=["auto", "cuda", "cpu"], help="Initial device selection; auto prefers CUDA when available")
-    parser.add_argument("--low-memory", action="store_true", help="Start with sequential offload, 12 diffusion steps and mesh resolution 64")
+    parser.add_argument("--low-memory", action="store_true", help="Start with sequential offload, 256px refinement, CFG 1, 12 steps and mesh resolution 64")
     args = parser.parse_args()
     if args.device:
         os.environ["SKETCH2SHAPE_DEVICE"] = args.device
