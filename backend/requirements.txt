@@ -1,0 +1,14 @@
+# Python 3.11; on Linux install the CPU torch wheel first (see README).
+torch==2.5.1
+numpy==1.26.4
+Pillow==11.0.0
+omegaconf==2.3.0
+einops==0.7.0
+transformers==4.35.0
+huggingface-hub==0.17.3
+trimesh==4.5.3
+scikit-image==0.24.0
+imageio==2.36.1
+# Upstream tsr.utils imports rembg even when removal is disabled.
+rembg[cpu]==2.0.60
+onnxruntime==1.20.1

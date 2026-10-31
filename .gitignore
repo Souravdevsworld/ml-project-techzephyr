@@ -18,3 +18,12 @@ outputs/
 
 # Frontend build dependencies
 node_modules/
+
+# Backend environments, pretrained weights, and generated outputs
+backend/.venv/
+backend/.cache/
+backend/weights/
+backend/outputs/
+backend/vendor/
+backend/**/*.ckpt
+backend/**/*.safetensors
