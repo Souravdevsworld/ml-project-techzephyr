@@ -1,5 +1,7 @@
 """Frontend contract: ML stays in a reusable, separate Python interpreter."""
 import atexit
+from dataclasses import asdict
+import math
 import json
 import logging
 import os
@@ -42,14 +44,23 @@ def validate_glb(path):
     return str(path)
 
 
+class WorkerError(RuntimeError):
+    def __init__(self, message, report):
+        super().__init__(message)
+        self.report = report
+
+
 class Worker:
     def __init__(self, python):
+        self.started = time.perf_counter()
+        self.last_response = {}
         self.process = subprocess.Popen(
-            [python, '-u', '-m', 'backend.worker'], cwd=ROOT,
+            [python, '-u', '-m', 'backend.worker', '--ready-signal'], cwd=ROOT,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             text=True, bufsize=1,
             # stderr inherits server logs; never shares the JSON stdout channel.
         )
+        self.spawn_seconds = time.perf_counter() - self.started
         self.responses = queue.Queue()
         def read():
             try:
@@ -60,20 +71,36 @@ class Worker:
         threading.Thread(target=read, daemon=True).start()
 
     def request(self, payload, timeout):
+        started = time.perf_counter()
         self.process.stdin.write(json.dumps(payload) + '\n')
         self.process.stdin.flush()
-        try:
-            line = self.responses.get(timeout=timeout)
-        except queue.Empty as exc:
-            raise TimeoutError('TripoSR inference timed out; the worker will be restarted on the next request.') from exc
-        if line is None:
-            raise RuntimeError('TripoSR worker exited. Check backend dependencies and server logs.')
-        result = json.loads(line)
-        if result.get('id') != payload['id']:
-            raise RuntimeError('TripoSR worker returned a mismatched request ID.')
-        if result.get('error'):
-            raise RuntimeError(result['error'])
-        return result['path']
+        serialization = time.perf_counter() - started
+        deadline = time.perf_counter() + timeout
+        startup_seconds = 0.0
+        while True:
+            try:
+                line = self.responses.get(timeout=max(0, deadline-time.perf_counter()))
+            except queue.Empty as exc:
+                raise TimeoutError('TripoSR inference timed out; the worker will be restarted on the next request.') from exc
+            if line is None:
+                raise RuntimeError('TripoSR worker exited. Check backend dependencies and server logs.')
+            result = json.loads(line)
+            if result.get('ready'):
+                startup_seconds = time.perf_counter() - getattr(self, 'started', started)
+                continue
+            if result.get('id') != payload['id']:
+                raise RuntimeError('TripoSR worker returned a mismatched request ID.')
+            self.last_response = result.get('report', {})
+            timings = self.last_response.setdefault('timings', {})
+            rpc_seconds = time.perf_counter() - started
+            timings.update(worker_startup_seconds=startup_seconds,
+                           worker_spawn_seconds=getattr(self, 'spawn_seconds', 0.0),
+                           path_serialization_seconds=serialization,
+                           worker_rpc_seconds=rpc_seconds,
+                           communication_overhead_seconds=max(0.0, rpc_seconds-result.get('worker_request_seconds', 0)-startup_seconds-serialization))
+            if result.get('error'):
+                raise WorkerError(result['error'], self.last_response)
+            return result['path']
 
     def close(self):
         if self.process.poll() is None:
@@ -100,8 +127,15 @@ atexit.register(shutdown_worker)
 
 def generate_3d(image_path: str, prompt: str | None = None) -> str:
     """Reconstruct a GLB synchronously. TripoSR does not condition on text."""
+    return generate_with_report(image_path, prompt)['path']
+
+
+def generate_with_report(image_path, prompt=None, *, preprocessing=None, output_dir=None):
+    """Backend evaluation entry; same inference worker, optional per-run prep."""
     global _CLIENT
+    total_started = time.perf_counter()
     image = validate_input(image_path)
+    input_validation_seconds = time.perf_counter() - total_started
     if prompt is not None and not isinstance(prompt, str):
         raise ValueError('prompt must be a string or None.')
     if prompt and prompt.strip():
@@ -112,14 +146,17 @@ def generate_3d(image_path: str, prompt: str | None = None) -> str:
     python = str(Path(python).expanduser().absolute())
     settings = Settings.from_env()
     timeout = float(os.environ.get('TRIPOSR_TIMEOUT', '1800'))
-    if timeout <= 0:
+    if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError('TRIPOSR_TIMEOUT must be positive.')
-    output_dir = Path(os.environ.get('TRIPOSR_OUTPUT_DIR', ROOT / 'backend/outputs')).expanduser().resolve()
+    output_dir = Path(output_dir or os.environ.get('TRIPOSR_OUTPUT_DIR', ROOT / 'backend/outputs')).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f'{uuid.uuid4().hex}.glb'
     started = time.monotonic()
     with _LOCK:
-        key = (python, settings)
+        # Per-request preprocessing changes must not reload pretrained weights.
+        queue_wait_seconds = time.monotonic() - started
+        key = (python, settings.source, settings.model_dir, settings.device,
+               settings.resolution, settings.chunk_size, settings.remove_background)
         if _CLIENT and (_CLIENT[0] != key or _CLIENT[1].process.poll() is not None):
             _CLIENT[1].close()
             _CLIENT = None
@@ -127,14 +164,23 @@ def generate_3d(image_path: str, prompt: str | None = None) -> str:
             _CLIENT = (key, Worker(python))
         try:
             returned = _CLIENT[1].request(
-                {'id': uuid.uuid4().hex, 'image': str(image), 'output': str(output)}, timeout)
+                {'id': uuid.uuid4().hex, 'image': str(image), 'output': str(output),
+                 'preprocessing': asdict(preprocessing or settings.preprocessing)}, timeout)
             if Path(returned).resolve() != output:
                 raise RuntimeError('Worker output path did not match the requested output.')
+            validation_start = time.perf_counter()
             result = validate_glb(output)
+            raw_report = getattr(_CLIENT[1], 'last_response', {})
+            report = dict(raw_report) if isinstance(raw_report, dict) else {}
+            report.setdefault('timings', {})['adapter_glb_validation_seconds'] = time.perf_counter() - validation_start
         except Exception:
             _CLIENT[1].close()
             _CLIENT = None
             output.unlink(missing_ok=True)
             raise
     log.info('TripoSR device=%s total_seconds=%.2f output=%s', settings.device, time.monotonic()-started, result)
-    return result
+    report.update(path=result, valid_glb=True)
+    report['timings'].update(total_seconds=time.perf_counter()-total_started,
+                             adapter_input_validation_seconds=input_validation_seconds,
+                             adapter_queue_wait_seconds=queue_wait_seconds)
+    return report

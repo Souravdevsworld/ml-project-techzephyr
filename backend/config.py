@@ -1,7 +1,9 @@
 """Backend settings shared by the lightweight adapter and isolated worker."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
+
+from .preprocessing import PreprocessOptions
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -14,6 +16,7 @@ class Settings:
     resolution: int
     chunk_size: int
     remove_background: bool
+    preprocessing: PreprocessOptions = field(default_factory=PreprocessOptions)
 
     @classmethod
     def from_env(cls):
@@ -29,6 +32,7 @@ class Settings:
             integer('TRIPOSR_RESOLUTION', 128, 32, 256),
             integer('TRIPOSR_CHUNK_SIZE', 4096, 256, 65536),
             os.environ.get('TRIPOSR_REMOVE_BACKGROUND', '0') == '1',
+            PreprocessOptions.from_env(),
         )
 
 

@@ -12,3 +12,5 @@ imageio==2.36.1
 # Upstream tsr.utils imports rembg even when removal is disabled.
 rembg[cpu]==2.0.60
 onnxruntime==1.20.1
+# Milestone A uses the pinned rembg/CPU ONNX sessions and scikit-image above.
+# No frontend, CUDA, image-generation, or paid-API dependencies are introduced.

@@ -27,3 +27,7 @@ backend/outputs/
 backend/vendor/
 backend/**/*.ckpt
 backend/**/*.safetensors
+
+# Milestone A preprocessing inspection and evaluation artifacts
+backend/debug/
+backend/evaluations/
