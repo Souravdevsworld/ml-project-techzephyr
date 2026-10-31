@@ -6,7 +6,7 @@ Date: 1 November 2026 (Asia/Kolkata). Branch: `codex/sketch2shape-app`.
 
 | Check | Actual result |
 |---|---|
-| Offline automated suite | **110 passed, 2 optional ML checks skipped, 12 subtests passed, 0 failed** |
+| Offline automated suite | **117 passed, 2 optional ML checks skipped, 19 subtests passed, 0 failed** |
 | Python compilation (`app.py`, `backend`, `tests`) | Passed |
 | UI environment `pip check` | No broken requirements |
 | Gradio import and component initialization | Passed, Gradio **6.31.0**, 55 components |
@@ -82,11 +82,11 @@ Current results: **91 primary tests passed, 2 optional ML checks skipped, 12 sub
 
 ## Complete Colab frontend integration
 
-Added a full-app Colab notebook with 13 cells, isolated UI/ML setup, guarded Python 3.12/bootstrap paths, preserved runtime CUDA torch, private proxy access by default, optional authenticated native sharing, matched-job ZIP download, logs and owned-server shutdown. The existing generation callbacks still call the original model workers on the same machine. The notebook has no local-Windows inference dependency.
+Added a full-app Colab notebook with 14 cells, isolated UI/ML setup, guarded Python 3.12/bootstrap paths, preserved runtime CUDA torch, private proxy access by default, optional authenticated native sharing, matched-job ZIP download, logs and owned-server shutdown. The existing generation callbacks still call the original model workers on the same machine. The notebook has no local-Windows inference dependency.
 
 Validation:
 
-- **110 primary tests passed, 2 optional ML checks skipped, 12 subtests passed**. This includes **19 Colab orchestration tests** without downloads or GPU allocation.
+- **117 primary tests passed, 2 optional ML checks skipped, 19 subtests passed**. This includes **26 Colab orchestration and ZIP/syntax tests** without downloads or GPU allocation.
 - The unchanged separate CPU backend suite previously passed **74 tests and 12 subtests**; counts overlap and are not a combined total.
 - Notebook code cells parse as Python, have unique IDs and empty saved outputs. Proxy access is the default; automatic ZIP download and shutdown are disabled during Run all.
 - Tests cover missing GPU, interpreter/bootstrap behavior, venv policy mismatches, preservation of installed CUDA torch, nested-kernel-venv handling, pinned upstream checkout preservation, secret-free runtime manifests, authenticated sharing arguments/guard, port collisions, own-process reuse/termination, and validation/containment of exported job artifacts. GPU/runtime behavior is mocked in these orchestration tests; they are not model acceptance tests.
@@ -94,3 +94,5 @@ Validation:
 - Python compilation and whitespace checks pass. No pretrained model weights were downloaded by these checks.
 
 **Not executed here:** a live Google Colab GPU setup, Google's private port proxy, an external Gradio share tunnel, or full pretrained sketch→PNG→GLB inference. These require the user's actual Colab session. Setup/package checks and local HTTP behavior do not establish GPU model fit, semantic reconstruction quality or Colab quota/network availability.
+
+Private-repository handling was verified after inspecting the connected GitHub repository metadata: the notebook defaults to ZIP upload and never assumes Colab inherits Git credentials. The existing safe ZIP extraction/syntax regressions are also run against the new notebook (including traversal, drive-path, symlink, duplicate and overwrite checks). Setup accepts an uploaded source tree without `.git`, validates its SHA-256 identity, and records ZIP identity instead of fabricating a source commit. Optional Git mode remains available only when the VM can access the repo. No GitHub token is requested by ZIP mode and repository visibility is unchanged.

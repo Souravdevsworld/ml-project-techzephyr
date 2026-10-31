@@ -10,7 +10,7 @@ This branch connects the team's existing model implementations to the existing G
 
 ## Run on Google Colab instead of your laptop GPU
 
-Use the [complete app notebook](notebooks/Sketch2Shape_App_Colab.ipynb) and [Colab guide](docs/COLAB.md). Select a T4 GPU, run cells 1–3, and open **Open Sketch2Shape AI**. The existing frontend and both model workers run together on Colab; your laptop only needs a browser. Upload/draw and download the real GLB through the same interface.
+Use the [complete app notebook](notebooks/Sketch2Shape_App_Colab.ipynb) and [Colab guide](docs/COLAB.md). Download this private repository branch as a source ZIP, select a T4 GPU, run notebook sections 1–3 and upload that ZIP when prompted, then open **Open Sketch2Shape AI**. The existing frontend and both model workers run together on Colab; your laptop only needs a browser. Upload/draw and download the real GLB through the same interface.
 
 The default private Colab preview needs no public tunnel. An optional password-protected temporary Gradio link can be requested in the notebook. Runtime availability/quotas vary, and full pretrained GPU acceptance remains unverified here. No Windows Python/GPU setup is needed for this workflow.
 

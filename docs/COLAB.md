@@ -2,12 +2,12 @@
 
 This is the simplest integration for a laptop without enough GPU/RAM: **the existing frontend and model workers run on the same Colab GPU machine**. Your laptop opens the frontend in a browser, uploads/draws the input, and downloads the generated files. It needs no local Python, CUDA, Gradio server or model weights.
 
-Use [`notebooks/Sketch2Shape_App_Colab.ipynb`](../notebooks/Sketch2Shape_App_Colab.ipynb), rather than the older single-stage experiment notebooks. Open it in [Google Colab](https://colab.research.google.com/): **File → Open notebook → GitHub**, select `Souravdevsworld/ml-project-techzephyr`, choose branch `codex/sketch2shape-app`, and open `notebooks/Sketch2Shape_App_Colab.ipynb`. A direct Open-in-Colab link is also supplied with the implementation handoff.
+Use [`notebooks/Sketch2Shape_App_Colab.ipynb`](../notebooks/Sketch2Shape_App_Colab.ipynb), rather than the older single-stage experiment notebooks. **This repository is private.** Download the development branch source ZIP from GitHub (**Code → Download ZIP**) while signed in. The notebook uploads that small source ZIP into Colab, so no GitHub token is needed in the runtime. Open it in [Google Colab](https://colab.research.google.com/): **File → Open notebook → GitHub**, select `Souravdevsworld/ml-project-techzephyr`, choose branch `codex/sketch2shape-app`, and open `notebooks/Sketch2Shape_App_Colab.ipynb`. Enable private-repository access if Colab asks to connect GitHub. Alternatively, extract the `.ipynb` from the downloaded ZIP and use **Colab → File → Upload notebook**, without connecting GitHub. A direct Open-in-Colab link is also supplied with the implementation handoff.
 
 ## Start it
 
 1. Select **Runtime → Change runtime type → T4 GPU**, or another suitable NVIDIA GPU, and reconnect. Colab GPU availability/quotas vary; no paid inference service is required by this code.
-2. Run cells **1–3 in order**, or choose **Runtime → Run all**. The optional download/stop switches default to false, so Run all leaves the frontend running.
+2. Run sections **1–3 in order**, or choose **Runtime → Run all**, and upload the downloaded source ZIP when prompted. Section 1 includes a ZIP-helper cell before the upload cell. The optional download/stop switches default to false, so Run all leaves the frontend running.
 3. In cell 3, click **Open Sketch2Shape AI**, or use the embedded private preview. Keep the Colab runtime connected.
 4. In the familiar frontend, draw/upload a sketch, optionally describe it, and click **Generate 3D Model**. A clear object photo can use **Image to 3D** to bypass diffusion.
 5. Inspect original/conditioning/refined images and the interactive model. Download the validated GLB and intermediates from the frontend. First real generation downloads the pretrained weights and can take longer.
@@ -47,11 +47,11 @@ All file paths used by the backend belong to the **same Colab filesystem**. Uplo
 - Handles missing `ensurepip` with a local virtualenv bootstrap rather than changing system packages with apt.
 - Pins the official TripoSR checkout and uses the existing real scikit-image density-to-mesh helper, avoiding CUDA-extension compilation.
 - Runs targeted worker dependency/device checks and upstream import/CLI checks without model-weight downloads. Unrelated inherited Colab packages are not treated as model dependencies.
-- Writes only non-secret paths, worker settings, source SHA and hardware details to ignored `work/colab/runtime.json`.
+- Writes only non-secret paths, worker settings, source Git SHA (Git mode) or ZIP SHA-256 (upload mode), and hardware details to ignored `work/colab/runtime.json`.
 
 The normal T4 profile starts with 512px refinement, CFG 7, 20 steps and mesh resolution 128. Model workers still run sequentially. Set `LOW_MEMORY = True` in cell 3 to select the smaller 256px/CFG 1 profile if required. GPU availability and a passing tiny CUDA check do not prove the full model pipeline fits or produces good geometry.
 
-The setup/source cells stop on errors and preserve local source edits. Existing incompatible checkouts/environments are not reset or deleted. Rerunning cell 3 stops only the previous server object it created, then starts one app. A port collision without that handle stops with an explanation instead of killing an unknown process.
+The setup/source cells stop on errors and preserve local source edits. ZIP mode defaults to reusing an already-uploaded source during the session; set `REUSE_UPLOADED_SOURCE = False` to upload a new version. Extraction reuses the existing bounded, path-safe ZIP helper and never overwrites a destination. Optional Git mode requires repository access from the VM itself: opening a private notebook through Colab does not authenticate `git clone`. No repository visibility or permissions are changed. Existing incompatible checkouts/environments are not reset or deleted. Rerunning cell 3 stops only the previous server object it created, then starts one app. A port collision without that handle stops with an explanation instead of killing an unknown process.
 
 ## Access options
 

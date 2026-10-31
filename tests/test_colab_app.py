@@ -14,8 +14,18 @@ import trimesh
 import app
 from scripts import setup_colab as setup
 from scripts.colab_runtime import AppServer, export_latest_job
+from backend.tests import test_colab_notebook as legacy_notebook
 
 ROOT=Path(__file__).resolve().parents[1]
+
+
+class FullAppZipTests(legacy_notebook.ColabNotebookTests):
+    """Apply the existing extraction/syntax regressions to the new notebook."""
+    def setUp(self):
+        replacement=patch.object(legacy_notebook,'NOTEBOOK',ROOT/'notebooks/Sketch2Shape_App_Colab.ipynb')
+        replacement.start()
+        self.addCleanup(replacement.stop)
+        super().setUp()
 
 
 def test_notebook_is_valid_python_with_safe_run_all_defaults():
@@ -34,6 +44,7 @@ def test_notebook_is_valid_python_with_safe_run_all_defaults():
                     if isinstance(target,ast.Name):
                         constants[target.id]=node.value.value
     assert constants['ACCESS_MODE']=='proxy'
+    assert constants['SOURCE_MODE']=='zip'
     assert constants['DOWNLOAD_LAST_SUCCESS'] is False
     assert constants['STOP_APP'] is False
     assert notebook['metadata']['accelerator']=='GPU'
@@ -88,6 +99,7 @@ def test_python_313_fallback_does_not_change_notebook_kernel(tmp_path,monkeypatc
 @pytest.fixture
 def setup_calls(tmp_path,monkeypatch):
     monkeypatch.setattr(setup,'ROOT',tmp_path)
+    (tmp_path/'.git').mkdir()
     monkeypatch.setattr(setup.shutil,'which',lambda name:'/usr/bin/nvidia-smi')
     monkeypatch.setattr(setup,'select_python',lambda *args:Path(sys.executable))
     commands=[]
@@ -144,6 +156,28 @@ def test_kernel_venv_torch_does_not_get_mistaken_for_base_system_torch(tmp_path,
     setup.setup()
     assert all(not inherited for _,inherited in environments)
     assert any('torch==2.11.0' in command for command in commands)
+
+
+def test_uploaded_zip_setup_does_not_require_git_metadata(tmp_path,setup_calls,monkeypatch):
+    (tmp_path/'.git').rmdir()
+    record=tmp_path/'work/colab/source.json'
+    record.parent.mkdir(parents=True)
+    record.write_text(json.dumps({'mode':'zip','archive_sha256':'a'*64}))
+    monkeypatch.setattr(setup,'probe_torch',lambda *args:gpu_info())
+    manifest=json.loads(setup.setup().read_text())
+    assert manifest['source_commit'] is None
+    assert manifest['source']['archive_sha256']=='a'*64
+
+
+def test_zip_identity_is_required_and_validated(tmp_path,monkeypatch):
+    monkeypatch.setattr(setup,'ROOT',tmp_path)
+    with pytest.raises(RuntimeError,match='cell 1'):
+        setup.source_identity()
+    record=tmp_path/'work/colab/source.json'
+    record.parent.mkdir(parents=True)
+    record.write_text(json.dumps({'mode':'zip','archive_sha256':'not-a-hash'}))
+    with pytest.raises(RuntimeError,match='Invalid ZIP'):
+        setup.source_identity()
 
 
 def test_no_gpu_stops_before_installation(tmp_path,monkeypatch):

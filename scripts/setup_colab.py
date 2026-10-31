@@ -117,6 +117,19 @@ def prepare_triposr(work, env):
     return directory
 
 
+def source_identity():
+    if (ROOT / ".git").exists():
+        return {"mode": "git", "commit": run(["git", "rev-parse", "HEAD"], capture=True).stdout.strip()}
+    record = ROOT / "work" / "colab" / "source.json"
+    if not record.is_file():
+        raise RuntimeError("Archive source has no identity record. Rerun notebook cell 1 to upload the source ZIP.")
+    data = json.loads(record.read_text(encoding="utf-8"))
+    digest = data.get("archive_sha256", "")
+    if data.get("mode") != "zip" or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise RuntimeError("Invalid ZIP source identity; rerun notebook cell 1.")
+    return {"mode": "zip", "commit": None, "archive_sha256": digest}
+
+
 def setup(cache_root=None):
     smi = shutil.which("nvidia-smi")
     if not smi:
@@ -125,6 +138,7 @@ def setup(cache_root=None):
     print(gpu, flush=True)
     work = ROOT / "work" / "colab"
     work.mkdir(parents=True, exist_ok=True)
+    source = source_identity()
     storage = cache_environment(cache_root or work / "cache")
     env = dict(os.environ, **storage)
     python = select_python(work, env)
@@ -162,10 +176,9 @@ def setup(cache_root=None):
     # pins. Check actual stage imports instead of treating all base extras as ML.
     run([ui, "-m", "backend.doctor", "--device", "cuda"], env=env)
     run([ml, ROOT / "backend" / "triposr_runner.py", triposr / "run.py", "--help"], env=env)
-    source = run(["git", "rev-parse", "HEAD"], capture=True).stdout.strip()
     manifest = {"project": str(ROOT), "ui_python": str(ui), "ml_python": str(ml),
                 "environment": {**storage, **worker_env}, "hardware": installed,
-                "source_commit": source, "triposr_commit": TRIPOSR_COMMIT,
+                "source": source, "source_commit": source.get("commit"), "triposr_commit": TRIPOSR_COMMIT,
                 "reuses_runtime_torch": inherit, "models_downloaded": False}
     target = work / "runtime.json"
     target.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
