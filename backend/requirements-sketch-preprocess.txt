@@ -1,0 +1,4 @@
+# Lightweight preprocessing/offline tests; no diffusion or GPU dependencies.
+-r requirements.txt
+Pillow>=10.4,<13
+opencv-python-headless==4.11.0.86
