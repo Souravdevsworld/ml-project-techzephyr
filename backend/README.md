@@ -521,3 +521,105 @@ and real photo regression remain required. No pretrained sketch reconstruction
 was run here; **sketch-to-3D success is not claimed**. B2 readiness consists of the
 inspection CLI, reproducible fixtures and commands above. Stop after B1 and run
 the first actual sketch trial on the Mac before considering a sketch-to-image model.
+
+## Milestone B2A: controlled manual mug silhouette experiment
+
+This diagnostic is separate from production sketch preprocessing. It tests whether
+correct foreground alpha improves the same sketch's SF3D reconstruction; it does
+not infer depth/shading or promise a volumetric mug. No diffusion model is involved.
+
+Prepare a **manually verified opaque grayscale PNG mask** aligned pixel-for-pixel
+with the EXIF-oriented original sketch (same dimensions): white/255 for solid mug
+body and handle material; black/0 for the external background and handle opening.
+Do not provide a stroke mask, JPEG, inverse mask, or transparent-background RGBA
+mask. Export the mask as black-and-white grayscale pixels, with narrow antialiased
+edges permitted. The utility deliberately refuses ambiguous alpha conventions,
+colored masks, dimension mismatches, empty/full masks, edge-touching foreground,
+disconnected foreground and masks without an enclosed transparent opening. These
+are structural checks: only manual inspection establishes that the hole is the
+handle and that the mask actually follows the mug. Do not manufacture a hole to
+satisfy validation. A mug view without a visible enclosed handle opening is outside
+this controlled test's scope.
+
+The utility retains source RGB colors and internal lines; original transparency
+is composited over white before the supplied mask replaces alpha. It crops to mask
+support, resizes uniformly with premultiplied alpha to fit 85% of a 512×512 canvas,
+and centers the result. No hole filling, automatic segmentation, color inversion,
+or line thresholding is applied. Output hole count is checked after resizing; very
+small openings that disappear require a clearer mask, not automatic repair.
+Resampling necessarily interpolates RGB/alpha at edges. Sources are never written.
+An existing output directory is refused, protecting inputs and earlier experiments.
+
+Files saved in a new output directory:
+
+- `original_preview.png`: original oriented sketch composited on white, original dimensions.
+- `silhouette_mask.png`: supplied oriented mask, original dimensions.
+- `reference.png`: final 512×512 RGBA inference reference.
+- `alpha.png`: exact final alpha as grayscale (white foreground, black transparency).
+- `reference_preview.png`: final reference composited on gray for inspection.
+- `metadata.json`: source paths/hashes, source/output dimensions, scale/offset,
+  bounds, component/hole measurements, preparation policy and limitations.
+
+### Exact Mac M4 commands
+
+Run from the repository root on `sketch-milestone-b`, using the already working
+environments, model paths and caches. Substitute the two input paths. The output
+directory below must not already exist; choose another name for repeated trials.
+
+```bash
+export TRIPOSR_PYTHON="$PWD/backend/.venv/bin/python"
+export SF3D_PYTHON="$PWD/backend/.venv-sf3d/bin/python"
+export SKETCH_INPUT='/absolute/path/to/original-mug-sketch.jpg'
+export SILHOUETTE_INPUT='/absolute/path/to/manually-verified-mug-mask.png'
+
+# 1. Create the diagnostic reference (Pillow/NumPy only; no SF3D loading).
+"$TRIPOSR_PYTHON" -m backend.silhouette_diagnostic \
+  "$SKETCH_INPUT" "$SILHOUETTE_INPUT" --output-dir work/b2a-mug-01
+
+# 2. Inspect alpha and RGB alignment BEFORE inference.
+open work/b2a-mug-01/original_preview.png \
+  work/b2a-mug-01/silhouette_mask.png \
+  work/b2a-mug-01/alpha.png work/b2a-mug-01/reference_preview.png
+cat work/b2a-mug-01/metadata.json
+# Verify: white solid body/handle, BLACK handle opening and external background.
+
+# 3. Genuine pretrained SF3D on CPU. Keep your existing source/weights settings.
+# IMPORTANT: photo mode preserves supplied alpha and bypasses rembg.
+# sketch/auto would route back through B1 and could replace the supplied alpha.
+SKETCH2SHAPE_INPUT_MODE=photo SKETCH2SHAPE_3D_BACKEND=sf3d \
+  SKETCH2SHAPE_3D_FALLBACK=error SF3D_DEVICE=cpu \
+  "$TRIPOSR_PYTHON" -m backend.cli work/b2a-mug-01/reference.png
+
+# 4. Paste the actual returned GLB path here; verify geometry and textures.
+export B2A_GLB='/absolute/path/to/returned.glb'
+"$TRIPOSR_PYTHON" - <<'PY'
+import json, os
+from backend.backends.assets import inspect_glb_asset
+report = inspect_glb_asset(os.environ['B2A_GLB'])
+assert all(report[k] for k in ('valid_glb','has_uv','has_materials','has_textures')), report
+print(json.dumps(report, indent=2))
+PY
+# Open in Blender (if installed at the standard macOS location):
+open -a Blender
+# In Blender: File > Import > glTF 2.0, select the path printed by:
+printf '%s\n' "$B2A_GLB"
+# Orbit in Material Preview; compare front, side and oblique views with B1.
+
+# 5. Focused synthetic tests, including the unchanged B1 tests.
+"$TRIPOSR_PYTHON" -m unittest backend.tests.test_silhouette_diagnostic \
+  backend.tests.test_sketch_preprocessing -v
+```
+
+The existing SF3D photo path checks the supplied alpha, then crops/reframes it
+using `SF3D_FOREGROUND_RATIO` (default 0.85). This may resample the diagnostic
+reference slightly again; it does not invoke rembg on this nonopaque RGBA input.
+Leave that setting at its previous value for a fair comparison. Inspect the
+runtime's existing preprocessing metadata for `segmentation_outcome=existing_alpha`.
+The working SF3D runtime/export algorithms are unchanged.
+
+Compare the same mug with the B1 panel baseline using identical SF3D settings.
+Record both GLB paths, elapsed time, settings and screenshots. Judge whether the
+body has depth and whether the handle opening survives from multiple angles.
+Successful GLB validation alone is not a successful reconstruction. Even an
+improved silhouette may yield a flat mug-shaped cutout because RGB remains line
+art; that outcome supports testing shaded image conditioning next.
