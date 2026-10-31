@@ -1,0 +1,10 @@
+{
+  "name": "sketch2shape-hero",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit && esbuild frontend/main.tsx --bundle --minify --format=iife --outfile=assets/shader-animation.js && tailwindcss -i frontend/styles.css -o assets/shader-animation.css --minify",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {"react": "^19.0.0", "react-dom": "^19.0.0", "three": "^0.180.0"},
+  "devDependencies": {"@types/react": "^19.0.0", "@types/react-dom": "^19.0.0", "@types/three": "^0.180.0", "typescript": "^5.9.0", "esbuild": "^0.25.0", "tailwindcss": "^4.1.0", "@tailwindcss/cli": "^4.1.0"}
+}

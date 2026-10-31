@@ -1,0 +1,11 @@
+# Separate experiment. Do not install upstream TripoSR requirements here.
+-r requirements-sketch-preprocess.txt
+numpy==1.26.4
+transformers==4.40.2
+tokenizers==0.19.1
+huggingface-hub==0.25.2
+diffusers==0.30.3
+accelerate==0.34.2
+safetensors==0.4.5
+peft==0.11.1
+# Keep the existing torch 2.11.0+cu128; notebook constrains pip to that build.
