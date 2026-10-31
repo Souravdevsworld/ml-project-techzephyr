@@ -28,7 +28,7 @@ DEFAULT_NEGATIVE_PROMPT = (
     "text, watermark"
 )
 EXPECTED_PACKAGES = {
-    "torch": "2.11.0+cu128", "numpy": "1.26.4", "transformers": "4.40.2",
+    "torch": "2.5.1", "numpy": "1.26.4", "transformers": "4.40.2",
     "tokenizers": "0.19.1", "huggingface-hub": "0.25.2", "diffusers": "0.30.3",
     "accelerate": "0.34.2", "safetensors": "0.4.5", "opencv-python-headless": "4.11.0.86",
 }
@@ -48,10 +48,10 @@ def check_refinement_environment() -> dict[str, str]:
         except metadata.PackageNotFoundError:
             actual = "missing"
         versions[package] = actual
-        if actual != expected:
+        if actual.split("+")[0] != expected:
             problems.append(f"{package}: expected {expected}, found {actual}")
     if problems:
-        raise RefinementError("Incompatible sketch environment; use the separate experiment notebook. "
+        raise RefinementError("Incompatible sketch environment; install requirements-sketch.txt in the isolated sketch environment. "
                               "No automatic upgrades were attempted. " + "; ".join(problems))
     return versions
 
@@ -98,7 +98,7 @@ def _generate_image(conditioning: Image.Image, prompt: str, settings: Refinement
     try:
         logger.info("Loading pretrained Scribble ControlNet and SD 1.5; first use downloads weights")
         controlnet = ControlNetModel.from_pretrained(
-            CONTROLNET_MODEL, torch_dtype=dtype, variant="fp16", use_safetensors=True)
+            CONTROLNET_MODEL, torch_dtype=dtype, use_safetensors=True)
         pipe = StableDiffusionControlNetPipeline.from_pretrained(
             BASE_MODEL, controlnet=controlnet, torch_dtype=dtype,
             variant="fp16", use_safetensors=True)
@@ -190,7 +190,7 @@ def refine_sketch(sketch_path: str, prompt: str | None = None, output_dir: str |
         logger.error("Sketch refinement failed (%s); no refined image returned", type(exc).__name__)
         if isinstance(exc, RefinementError):
             raise
-        raise RefinementError("Sketch refinement failed during model loading/inference or output saving. "
-                              "Check the exception cause for dependency, model access, network or CUDA errors") from exc
+        raise RefinementError("Sketch refinement failed during model loading, MPS inference or output saving. "
+                              "Check the exception cause for dependency, model access, network or unsupported MPS operations") from exc
     finally:
         partial.unlink(missing_ok=True)

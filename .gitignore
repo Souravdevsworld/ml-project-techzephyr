@@ -34,3 +34,8 @@ backend/evaluations/
 
 # Optional SF3D environment (separate from working TripoSR/frontend venvs)
 backend/.venv-sf3d/
+
+# Isolated Mac sketch experiment artifacts
+sketch2shape_mac_m4/.venv/
+sketch2shape_mac_m4/.cache/
+sketch2shape_mac_m4/outputs/
