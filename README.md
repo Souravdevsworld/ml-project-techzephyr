@@ -67,3 +67,11 @@ After a successful generation, **Regenerate with Prompt** starts a new request f
 Both actions share one inference queue and a server-side inference lock. Admission rejects a second request for an active session, duplicate worker calls are ignored, and request IDs prevent superseded completions from publishing results. These controls cover a single application process; run one worker process per backend instance (a multi-process deployment would need a shared queue/lock).
 
 The tests also cover click-time snapshots, optional prompts, edits during blocked inference, rejected overlap, sequential inference across sessions, original-sketch regeneration, comparison history, failure retention, and stale-result rejection. Browser checks use a temporary test backend only and do not establish real text-guided generation support.
+
+## Data Rain atmosphere
+
+`components/ui/data-rain.tsx` contains the supplied React canvas particle effect. The hero now offers **Data Rain**, **Shader**, and **Off** controls; switching effects unmounts the previous one. The original shader remains available. This affects only the decorative hero, leaving sketch inputs, prompt editing, regeneration, backend calls, and model comparison unchanged.
+
+The Gradio embed in `frontend/main.tsx` uses contained mode with 650 particles, `flowSpeed={0.8}`, and `obstacleRadius={40}`. Pointer influence is restricted to the hero area. Canvas layers are noninteractive, so they cannot intercept sketch drawing or buttons. Data Rain supports adaptive quality, hidden-tab pausing, resize observation, and cleanup of animation frames/listeners. Reduced-motion users receive a static, pre-simulated frame; **Off** removes the effect entirely.
+
+All styles, including the component's previously unspecified canvas layout and bloom layers, are in `frontend/styles.css`. The pasted `../../index.css` import was replaced by this existing shared build entry. React, TypeScript, Tailwind 4, and the shadcn `@/components/ui` alias were already configured. No additional packages, images, providers, or CDN resources are needed. `npm run build` rebuilds the committed JS/CSS assets (the existing `shader-animation` asset names now contain both effects).
