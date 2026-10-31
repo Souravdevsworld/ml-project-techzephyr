@@ -22,14 +22,14 @@ def preprocess_sketch(value, output_path: str | Path) -> str:
     if isinstance(value, dict):
         value = value.get("composite")
     if value is None:
-        raise ValueError("Draw a sketch or upload a PNG/JPG image first.")
+        raise ValueError("Upload a PNG or JPG image first.")
     if isinstance(value, (str, Path)):
         with Image.open(value) as opened:
             image = ImageOps.exif_transpose(opened).convert("RGBA")
     elif isinstance(value, Image.Image):
         image = ImageOps.exif_transpose(value).convert("RGBA")
     else:
-        raise ValueError("Please supply a valid sketch or PNG/JPG image.")
+        raise ValueError("Please supply a valid PNG/JPG image.")
     image.thumbnail((MAX_EDGE, MAX_EDGE), Image.Resampling.LANCZOS)
     white = Image.new("RGBA", image.size, "white")
     white.alpha_composite(image)
@@ -58,28 +58,28 @@ def validate_glb(value) -> str:
 
 def generate(sketch, upload, source, prompt, progress=gr.Progress()):
     # Clear previous artifacts immediately, including on a failed subsequent run.
-    yield None, None, "⏳ Preparing your sketch…"
+    yield None, None, "⏳ Preparing your image…"
     try:
-        progress(0.1, desc="Preparing sketch")
+        progress(0.1, desc="Preparing image")
         with tempfile.TemporaryDirectory(prefix="sketch2shape-") as directory:
             image_path = preprocess_sketch(
                 sketch if source == "Draw" else upload,
                 Path(directory) / "sketch.png",
             )
             try:
-                module = importlib.import_module("backend.generator")
+                module = importlib.import_module("backend.frontend_sf3d")
             except ModuleNotFoundError as exc:
-                if exc.name in {"backend", "backend.generator"}:
+                if exc.name in {"backend", "backend.generator", "backend.frontend_sf3d"}:
                     raise RuntimeError(
-                        "3D generation is unavailable: backend/generator.py is not installed. "
-                        "Connect the backend's generate_3d(image_path, prompt) function to continue."
+                        "SF3D generation is unavailable: its frontend adapter or backend/generator.py is not installed. "
+                        "Install the SF3D backend and configure SF3D_PYTHON to continue."
                     ) from exc
                 raise RuntimeError("A backend dependency is missing. Check the server logs.") from exc
             generator = getattr(module, "generate_3d", None)
             if not callable(generator):
                 raise RuntimeError("The backend must expose generate_3d(image_path, prompt).")
             progress(0.3, desc="Generating 3D model")
-            yield None, None, "⏳ Generating your 3D model…"
+            yield None, None, "⏳ SF3D is reconstructing your image…"
             generated = validate_glb(generator(image_path, (prompt or "").strip()))
             # Copy before temporary input cleanup; Gradio caches returned files.
             import shutil
@@ -113,7 +113,7 @@ def pending_prompt(prompt, session):
         if session["latest_prompt"] == session["submitted_prompt"]:
             return "No pending prompt edit."
         label = "(empty prompt)" if not session["latest_prompt"] else session["latest_prompt"]
-        return f"Pending prompt: {label}\nApply it with Regenerate with Prompt after the current run finishes."
+        return f"Pending prompt: {label}\nApply it with Regenerate 3D after the current run finishes."
 
 
 def submit_request(sketch, upload, source, prompt, session, regenerate=False):
@@ -140,6 +140,17 @@ def submit_request(sketch, upload, source, prompt, session, regenerate=False):
         return (session, "⏳ Request captured. Waiting to generate…",
                 gr.update(interactive=False), gr.update(interactive=False),
                 "No pending prompt edit.")
+
+
+def submit_upload(upload, prompt, session):
+    """Image-only frontend admission; retain the existing snapshot/locking logic."""
+    with SESSION_LOCK:
+        if upload is None and session["active"] is None:
+            message = "⚠ Upload a PNG or JPG image first."
+            session["error"] = message
+            return (session, message, gr.update(interactive=True),
+                    gr.update(interactive=session["original"] is not None), gr.skip())
+    return submit_request(None, upload, "Upload", prompt, session)
 
 
 def submit_regeneration(prompt, session):
@@ -172,7 +183,7 @@ def run_request(session, progress=gr.Progress()):
             session["model"] = model
             session["original"] = request["image"]
             session["error"] = None
-            message = "✓ New generation ready. Prompt passed to backend; conditioning support is backend-dependent."
+            message = "✓ SF3D model ready. Text prompts are not used by SF3D."
         else:
             session["error"] = message
             if session["model"]:
@@ -202,45 +213,35 @@ def build_app():
     with gr.Blocks(title="Sketch2Shape AI") as demo:
         session = gr.State(new_session)
         gr.HTML('''<section id="hero" class="shader-hero"><div data-shader-root aria-hidden="true"></div><span class="eyebrow">SKETCH2SHAPE AI / CREATIVE LAB</span>
-        <h1>A simple sketch.<br>A whole new dimension.</h1>
-        <p>Draw your idea, add a little direction, and turn it into a 3D object you can explore.</p></section>''',
+        <h1>A single image.<br>A whole new dimension.</h1>
+        <p>Upload a clear photo of your object and turn it into a 3D model you can explore.</p></section>''',
             css_template=(ASSETS / "shader-animation.css").read_text(),
             js_on_load=(ASSETS / "shader-animation.js").read_text(),
         )
         with gr.Row(equal_height=True):
             with gr.Column(scale=1, min_width=320, elem_classes="panel"):
-                gr.Markdown("### 01 / Shape your idea\nStart with a clear silhouette on a white background.")
-                source = gr.Radio(["Draw", "Upload"], value="Draw", label="Sketch source")
-                sketch = gr.ImageEditor(
-                    label="Sketch canvas", type="pil", image_mode="RGBA",
-                    sources=(), brush=gr.Brush(colors=["#111111"], default_size=8),
-                    eraser=gr.Eraser(default_size=20), canvas_size=(640, 480),
-                    height=370, transforms=(),
-                )
-                reset = gr.Button("↺ Reset canvas", size="sm")
-                upload = gr.Image(label="Upload PNG or JPG", type="pil", sources=["upload"], visible=False)
+                gr.Markdown("### 01 / Upload your image\nUse a clear photo of one object, with the full object visible.")
+                upload = gr.Image(label="Upload PNG or JPG", type="pil", sources=["upload"], height=370)
                 prompt = gr.Textbox(label="Appearance · optional", placeholder="e.g. A matte ceramic vase with soft, rounded edges", lines=2, max_length=1000)
-                gr.Markdown("Prompt is optional and is passed to the backend. Text conditioning depends on backend support.")
+                gr.Markdown("Prompt is optional and is passed to the backend. SF3D reconstructs from the image and does not use text prompts.")
                 pending = gr.Textbox(label="Pending prompt edit", value="No pending prompt edit.", interactive=False, lines=2)
                 generate_button = gr.Button("Generate 3D  →", variant="primary", elem_id="generate")
             with gr.Column(scale=1, min_width=320, elem_classes="panel"):
                 gr.Markdown("### 02 / Explore your creation\nDrag to orbit · Scroll to zoom")
                 viewer = gr.Model3D(label="3D workspace", height=460, clear_color=(0.04, 0.06, 0.1, 1))
-                status = gr.Markdown("Ready when you are. Draw or upload a sketch to begin.", elem_id="status")
+                status = gr.Markdown("Ready when you are. Upload an image to begin.", elem_id="status")
                 download = gr.File(label="Download GLB", interactive=False)
-                regenerate_button = gr.Button("Regenerate with Prompt", interactive=False)
-                gr.Markdown("Regeneration creates a new model from the saved original sketch. It does not edit the existing mesh.")
-                with gr.Accordion("Original sketch & previous successful model", open=False):
-                    original = gr.Image(label="Saved original sketch", interactive=False, type="pil")
+                regenerate_button = gr.Button("Regenerate 3D", interactive=False)
+                gr.Markdown("Regeneration creates a new model from the saved original image. It does not edit the existing mesh.")
+                with gr.Accordion("Original image & previous successful model", open=False):
+                    original = gr.Image(label="Saved original image", interactive=False, type="pil")
                     previous = gr.Model3D(label="Previous successful model", height=280)
-        gr.Markdown("**Sketch → Shape → Explore** &nbsp; · &nbsp; Built for ideas in the making. GLB files work with Blender and other 3D tools.")
-        source.change(lambda value: (gr.update(visible=value == "Draw"), gr.update(visible=value == "Upload")), source, [sketch, upload], queue=False)
-        reset.click(lambda: None, outputs=sketch, queue=False)
+        gr.Markdown("**Image → Shape → Explore** &nbsp; · &nbsp; Built for ideas in the making. GLB files work with Blender and other 3D tools.")
         prompt.change(pending_prompt, [prompt, session], pending, queue=False, trigger_mode="always_last")
         admission_outputs = [session, status, generate_button, regenerate_button, pending]
         result_outputs = [viewer, download, previous, original, status, generate_button, regenerate_button]
         for event in (
-            generate_button.click(submit_request, [sketch, upload, source, prompt, session], admission_outputs, queue=False, trigger_mode="once"),
+            generate_button.click(submit_upload, [upload, prompt, session], admission_outputs, queue=False, trigger_mode="once"),
             regenerate_button.click(submit_regeneration, [prompt, session], admission_outputs, queue=False, trigger_mode="once"),
         ):
             event.success(run_request, session, result_outputs, concurrency_id="inference", concurrency_limit=1, show_progress="full")
