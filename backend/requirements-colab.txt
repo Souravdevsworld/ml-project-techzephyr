@@ -1,0 +1,14 @@
+# GPU inference only. Keep Colab's existing CUDA-enabled torch installation.
+-r requirements.txt
+numpy>=1.26,<2
+Pillow>=10.4,<11
+omegaconf==2.3.0
+einops==0.7.0
+transformers==4.40.2
+tokenizers==0.19.1
+huggingface-hub==0.25.2
+rembg[cpu]==2.0.67
+imageio[ffmpeg]
+xatlas>=0.0.9,<1
+moderngl==5.10.0
+# Install torchmcubes separately with --no-build-isolation after build tools.
