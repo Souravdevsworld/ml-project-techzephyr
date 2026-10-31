@@ -386,3 +386,138 @@ Run tests separately without mixing dependency environments:
 ```
 
 Fixture/mocked engine tests verify selection, error propagation, explicit fallback attribution, native GLB texture/resource validation and comparison bookkeeping. Existing tests are not weakened. Weights, environments, caches, generated assets and evaluation/debug files remain ignored; only backend-owned source/tests/docs and necessary ignore rules change. No commit, push, merge or publication occurs without approval.
+
+## Milestone B1: deterministic sketch reference preparation
+
+B1 adds no neural models. `generate_3d(image_path: str, prompt: str | None = None) -> str`
+remains unchanged. Set `SKETCH2SHAPE_INPUT_MODE` in the parent process:
+
+| Mode | Behavior |
+| --- | --- |
+| `photo` (default) | Existing SF3D RGBA/rembg preparation and TripoSR behavior |
+| `sketch` | SF3D only; deterministic sketch reference panel, no rembg |
+| `auto` | Only sparse, near-neutral, high-contrast line art on flat backgrounds routes to sketch; ambiguous inputs retain photo behavior |
+
+Invalid mode values fail explicitly. A detected/explicit sketch requires SF3D;
+it does not silently run TripoSR or use the configured TripoSR error fallback.
+The requested mode travels in each SF3D worker request, so changing it between
+requests does not require reloading weights. Restart a running frontend to change
+its shell environment. The existing SF3D preparation is bypassed only for sketch
+conditioning; model loading, mesh extraction, texture baking and GLB export are unchanged.
+
+`backend/sketch_preprocessing.py` accepts PNG/JPEG, applies EXIF orientation,
+ignores invisible RGB, detects background/stroke polarity, and normalizes to dark
+continuous-tone strokes on white. Contrast thresholds locate bounds and reject
+empty/tiny marks; they do not binarize the delivered linework. Content is cropped
+with a small margin, scaled uniformly, centered, and placed on a square RGBA
+canvas. Alpha is **one opaque rectangular reference panel with transparent outer
+margins**, not stroke segmentation or an inferred object silhouette. Internal
+lines and open contours survive; alpha is deliberately not passed to the photo
+mask validator. The CLI saves original pixels, prepared RGBA, gray-background
+preview, alpha and JSON with source hash, polarity, crop/frame sizes and warnings.
+Runtime preprocessing diagnostics appear in the existing SF3D report/log.
+Source files are only read. CLI diagnostic directories must be new, preventing
+accidental overwriting of an input. Synthetic fixtures live as reproducible mug,
+chair and teapot drawing definitions in `backend/tests/test_sketch_preprocessing.py`.
+
+### Canvas and uploads
+
+`app.py`'s unchanged `preprocess_sketch()` takes the editor `composite` or upload,
+applies EXIF orientation, thumbnails to a maximum edge of 1024, composites alpha
+onto white and writes an RGB PNG. Canvas defaults are 640×480 with `#111111`
+strokes (brush size 8); imported images can have other sizes/colors. The editor
+uses RGBA, but the backend receives no alpha through this frontend path. Backend
+CLI inputs can retain original PNG alpha. White strokes on transparent input
+can disappear when the frontend composites white; use dark strokes in the canvas
+or pass that original PNG directly to the backend. This cannot be recovered after
+flattening without changing the frontend. No frontend changes were made.
+
+### Mac M4 validation (existing environments and caches)
+
+Run from the repository root on `sketch-milestone-b`. These commands assume the
+previously working environments, official source, weights and auxiliary caches;
+they do not install anything or download weights. Keep existing source/model/cache
+variables when customized. Defaults below match the repository layout.
+
+```bash
+export TRIPOSR_PYTHON="$PWD/backend/.venv/bin/python"
+export SF3D_PYTHON="$PWD/backend/.venv-sf3d/bin/python"
+export SF3D_SOURCE="${SF3D_SOURCE:-$PWD/backend/vendor/stable-fast-3d}"
+export SF3D_MODEL_DIR="${SF3D_MODEL_DIR:-$PWD/backend/weights/stable-fast-3d}"
+export SF3D_DEVICE=cpu
+# Refuse network downloads during validation; missing caches should be fixed separately.
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+mkdir -p work
+
+# Optional synthetic fixtures; these are drawings, not reconstruction results.
+"$TRIPOSR_PYTHON" - <<'PY'
+from pathlib import Path
+from backend.tests.test_sketch_preprocessing import fixture
+root = Path('work/sketch-fixtures')
+root.mkdir(exist_ok=False)
+for kind in ('mug', 'chair', 'teapot'):
+    fixture(kind).convert('RGB').save(root / (kind + '.png'))
+PY
+
+# 1–2. Preprocessing only. Use a NEW output directory each run.
+"$TRIPOSR_PYTHON" -m backend.sketch_preprocessing work/sketch-fixtures/teapot.png \
+  --output-dir work/teapot-prepared
+open work/teapot-prepared/preview.png work/teapot-prepared/prepared.png
+cat work/teapot-prepared/metadata.json
+
+# 3. Genuine pretrained SF3D sketch trial: pass the ORIGINAL, not prepared.png.
+# Passing prepared.png with sketch mode would prepare it a second time.
+SKETCH2SHAPE_INPUT_MODE=sketch SKETCH2SHAPE_3D_BACKEND=sf3d \
+  SKETCH2SHAPE_3D_FALLBACK=error \
+  "$TRIPOSR_PYTHON" -m backend.cli work/sketch-fixtures/teapot.png
+
+# 4. Paste the returned GLB path into this variable, then validate geometry/textures.
+export SKETCH_GLB='/absolute/path/to/returned.glb'
+"$TRIPOSR_PYTHON" - <<'PY'
+import os, json
+from backend.generator import validate_glb
+from backend.backends.assets import inspect_glb_asset
+path = validate_glb(os.environ['SKETCH_GLB'])
+report = inspect_glb_asset(path)
+assert all(report[k] for k in ('valid_glb', 'has_uv', 'has_materials', 'has_textures')), report
+print(json.dumps(report, indent=2))
+PY
+# Also inspect silhouette, handles, internal lines and texture in Blender/a GLB viewer.
+
+# 5. Automated preprocessing/photo/adapter regression in the existing backend env.
+SKETCH2SHAPE_INPUT_MODE=photo "$TRIPOSR_PYTHON" -m unittest discover -s backend/tests -v
+# Real paired photo regression: substitute your known successful teapot photo.
+export PHOTO_INPUT='/absolute/path/to/known-working-teapot-photo.png'
+SKETCH2SHAPE_INPUT_MODE=photo SKETCH2SHAPE_3D_BACKEND=sf3d \
+  SKETCH2SHAPE_3D_FALLBACK=error "$TRIPOSR_PYTHON" -m backend.cli "$PHOTO_INPUT"
+SKETCH2SHAPE_INPUT_MODE=photo SKETCH2SHAPE_3D_BACKEND=triposr \
+  "$TRIPOSR_PYTHON" -m backend.cli "$PHOTO_INPUT"
+# Repeat the GLB checks above for the returned SF3D photo asset.
+```
+
+The preprocessing CLI needs only existing Pillow/NumPy. The parent uses
+`backend/.venv`; actual SF3D imports/inference run only in `backend/.venv-sf3d`.
+Offline flags guard Hugging Face/Transformers calls; other upstream dependencies
+must already be cached too. No model or cache files are rewritten by this change.
+
+### Limits, diagnostics and validation status
+
+A line drawing remains out of distribution for an image-to-3D model. Rectangular
+paper alpha may produce slabs, paper-like surfaces or poor geometry; it is a
+reference framing policy, not recovered depth/segmentation. Auto detection is an
+unvalidated heuristic and may mistake graphic-like photos for sketches. Colored,
+faint, shaded or textured drawings should use explicit sketch mode for inspection;
+complex backgrounds, edge-clipped drawings and semantically incomplete objects
+are not repaired. Tiny/near-blank marks fail with `ValueError`, but sufficiently
+large incomplete contours may still pass: semantic completeness is not inferred.
+Check preview/alpha/metadata before inference. Invalid images fail explicitly.
+The known nonfatal tangent-space warning is deferred.
+
+Cloud validation: seven new synthetic/dispatch/photo-path tests pass. Full backend
+discovery is blocked by absent `trimesh`/`skimage` (and the complete ML environment).
+An untouched HEAD archive reproduces the same four failures and fifteen errors;
+no dependencies were installed to disguise these limitations. The full Mac suite
+and real photo regression remain required. No pretrained sketch reconstruction
+was run here; **sketch-to-3D success is not claimed**. B2 readiness consists of the
+inspection CLI, reproducible fixtures and commands above. Stop after B1 and run
+the first actual sketch trial on the Mac before considering a sketch-to-image model.

@@ -37,6 +37,8 @@ class SF3DBackend:
             log.warning('SF3D is image-only; the supplied appearance prompt is unused.')
         if preprocessing is not None:
             log.info('SF3D uses its own validated RGBA preparation; TripoSR preprocessing options are not applied.')
+        from ..sketch_preprocessing import input_mode
+        requested_input_mode = input_mode()
         settings = SF3DSettings.from_env()
         python = os.environ.get('SF3D_PYTHON')
         if not python or not Path(python).expanduser().is_file():
@@ -64,7 +66,8 @@ class SF3DBackend:
                 self._key = key
             try:
                 returned = self._client.request({'id': uuid.uuid4().hex, 'image': str(image), 'output': str(output),
-                                                'options': {'foreground_ratio': settings.foreground_ratio,
+                                                'options': {'input_mode': requested_input_mode,
+                                                            'foreground_ratio': settings.foreground_ratio,
                                                             'texture_resolution': settings.texture_resolution}}, settings.timeout)
                 if Path(returned).resolve() != output:
                     raise RuntimeError('SF3D worker output path did not match the requested output.')

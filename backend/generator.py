@@ -205,6 +205,13 @@ def generate_with_report(image_path, prompt=None, *, preprocessing=None, output_
     name = selected_engine(engine)
     can_fallback = fallback_enabled(name, fallback)
     image = validate_input(image_path)
+    from .sketch_preprocessing import resolve_mode
+    effective_input_mode = resolve_mode(image)
+    if effective_input_mode == 'sketch':
+        if name != 'sf3d':
+            raise ValueError('Sketch input mode currently requires SKETCH2SHAPE_3D_BACKEND=sf3d.')
+        # Do not send sketch strokes to the legacy photo/rembg fallback.
+        can_fallback = False
     if prompt is not None and not isinstance(prompt, str):
         raise ValueError('prompt must be a string or None.')
     with _DISPATCH_LOCK:

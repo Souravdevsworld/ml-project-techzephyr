@@ -58,8 +58,11 @@ class SF3DRuntime:
         self.load_timings['model_loading_seconds'] = time.perf_counter() - started
         return self.model
 
-    def prepare(self, image_path, foreground_ratio, size=512):
+    def prepare(self, image_path, foreground_ratio, size=512, input_mode=None):
         """Preserve RGBA conditioning; SF3D composites gray inside prepare_image."""
+        from ..sketch_preprocessing import resolve_mode, prepare_sketch
+        if resolve_mode(image_path, input_mode) == 'sketch':
+            return prepare_sketch(image_path, foreground_ratio, size)
         started = time.perf_counter()
         with Image.open(image_path) as image:
             original = ImageOps.exif_transpose(image).convert('RGBA')
@@ -117,7 +120,8 @@ class SF3DRuntime:
         import torch
         size = getattr(getattr(model, 'cfg', None), 'cond_image_size', 512)
         size = size if type(size) is int and size > 0 else 512
-        image, metadata = self.prepare(image_path, settings.foreground_ratio, size=size)
+        image, metadata = self.prepare(image_path, settings.foreground_ratio, size=size,
+                                       input_mode=options.get('input_mode', 'photo'))
         self.last_report.update(stage='inference_and_texture_baking', model_reused=reused, device=self.device,
                                 preprocessing=metadata, texture_resolution=settings.texture_resolution,
                                 mixed_device_mps_fallback=self.device == 'mps')
