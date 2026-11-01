@@ -22,6 +22,25 @@ python app.py
 
 Open the address printed by Gradio. Keep your existing Mac source/checkpoint paths if they differ. The frontend adapter detects `backend/.venv-sf3d/bin/python` automatically when present; otherwise set `SF3D_PYTHON`. See [backend setup](backend/README.md) for SF3D installation, model downloads and troubleshooting.
 
+## Public link for judges
+
+With the frontend environment active and the SF3D variables above configured, run:
+
+```bash
+python app.py --share
+```
+
+Enter a demo password when prompted (typing is hidden). Gradio prints a public
+`https://....gradio.live` URL. Share it with username `judges` and the password.
+For noninteractive startup, set `DEMO_PASSWORD` in your shell instead; never commit
+it. Without `--share`, startup remains local and does not request a password.
+
+The link is temporary and requires this process, an awake Mac and an internet
+connection. Run `caffeinate -i` in another Mac terminal during judging. Test the
+link from a phone on mobile data, including one real generation. Creating a tunnel
+requires access to Gradio's sharing service; if it fails, check the terminal error,
+VPN/firewall settings and internet connection. Stop the app with Ctrl+C to end sharing.
+
 ## Generation behavior
 
 The frontend lazily calls `backend.frontend_sf3d.generate_3d(image_path, prompt=None)`, explicitly selecting SF3D without cross-engine fallback. It supplies an empty prompt. Standalone backend selection and TripoSR behavior remain unchanged.

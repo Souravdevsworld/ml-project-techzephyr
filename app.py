@@ -1,8 +1,11 @@
 """Sketch2Shape AI frontend. Run with: python app.py."""
 from __future__ import annotations
 
+import argparse
+import getpass
 import importlib
 import logging
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -255,5 +258,21 @@ def build_app():
     return demo.queue(default_concurrency_limit=1)
 
 
+def sharing_options(share=False):
+    """Public sharing is opt-in and always requires a password."""
+    if not share:
+        return {"share": False}
+    password = os.environ.get("DEMO_PASSWORD") or getpass.getpass(
+        "Choose a password for judges (input is hidden): ")
+    if not password.strip():
+        raise ValueError("A nonempty password is required for public sharing.")
+    return {"share": True, "auth": ("judges", password)}
+
+
 if __name__ == "__main__":
-    build_app().launch(theme=gr.themes.Base(primary_hue="emerald", neutral_hue="slate"), css=CSS, js="() => { document.documentElement.classList.add('dark'); }")
+    parser = argparse.ArgumentParser(description="Sketch2Shape AI Gradio frontend")
+    parser.add_argument("--share", action="store_true",
+                        help="Create a password-protected public Gradio link")
+    args = parser.parse_args()
+    options = sharing_options(args.share)
+    build_app().launch(**options, theme=gr.themes.Base(primary_hue="emerald", neutral_hue="slate"), css=CSS, js="() => { document.documentElement.classList.add('dark'); }")
