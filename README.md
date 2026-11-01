@@ -30,10 +30,9 @@ With the frontend environment active and the SF3D variables above configured, ru
 python app.py --share
 ```
 
-Enter a demo password when prompted (typing is hidden). Gradio prints a public
-`https://....gradio.live` URL. Share it with username `judges` and the password.
-For noninteractive startup, set `DEMO_PASSWORD` in your shell instead; never commit
-it. Without `--share`, startup remains local and does not request a password.
+Gradio prints a public `https://....gradio.live` URL with no password prompt or
+login screen. Anyone with the link can use the app and trigger generation on your
+Mac. `DEMO_PASSWORD` is no longer used. Without `--share`, startup remains local.
 
 The link is temporary and requires this process, an awake Mac and an internet
 connection. Run `caffeinate -i` in another Mac terminal during judging. Test the
