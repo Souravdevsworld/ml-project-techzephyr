@@ -4,6 +4,32 @@ Sketch2Shape AI turns a single object image into a downloadable 3D asset. The cu
 
 **Submission status:** the team reports real SF3D CPU inference on an Apple Silicon Mac M4, with textured GLB output. The reported generation time is approximately 97 seconds on a 16 GB machine. That local result has not been independently reproduced in the cloud. The current web interface supports **image upload only**; it has no drawing canvas or prompt editor. The optional sketch CLI is implemented and mock-tested, but real Mac MPS sketch inference is unverified. If both drawing and upload are mandatory for judging, the current interface does not meet the drawing requirement.
 
+## Sketch-to-image notebook (Google Colab)
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Souravdevsworld/ml-project-techzephyr/blob/main/notebooks/Sketch2Shape_Basic_Colab.ipynb)
+
+The supplied [Sketch2Shape Basic Colab notebook](notebooks/Sketch2Shape_Basic_Colab.ipynb)
+is a separate sketch-to-image option, using SD 1.5 + ControlNet Scribble on a Colab
+CUDA GPU. It does not run SF3D or add drawing controls to the web prototype.
+
+1. Open the notebook in Colab and select **Runtime → Change runtime type → T4 GPU**.
+2. Run the install and model-loading cells in a fresh runtime. Downloads require
+   internet access and may need model access/license acceptance on Hugging Face.
+3. Upload a sketch, optionally edit the general prompt, and run Generate.
+4. Download `generated_image.png`, then upload that PNG into the running
+   Sketch2Shape Gradio app. Click **Generate 3D** to reconstruct it using SF3D.
+5. For another sketch in the same runtime, rerun Upload, Generate and Download;
+   keep the loaded model instead of reinstalling/reloading it.
+
+The notebook produces a 2D PNG; SF3D still runs in the separately configured local
+backend. Prompts condition the image-generation stage, not SF3D. Colab GPU access
+is quota-limited and a free T4 is not guaranteed. The notebook requires CUDA and
+is not the Mac MPS runner. It retains Colab's installed PyTorch and pins its own
+image-generation libraries; checkpoint variants and runtime dependencies may need
+compatibility adjustments. Its JSON/code syntax and lack of saved outputs were
+checked here, but Colab model loading/inference was **not executed**. No successful
+sketch result or sketch-to-GLB runtime is claimed from those checks.
+
 ## Objective and expected inputs/outputs
 
 The goal is a recognizable, reusable 3D asset from one image, with browser preview and GLB export, without paid inference APIs.
@@ -12,6 +38,7 @@ The goal is a recognizable, reusable 3D asset from one image, with browser previ
 | --- | --- | --- | --- |
 | Web prototype | PNG/JPG photo of one object | Interactive 3D preview and downloadable textured `.glb` | Connected to SF3D; Mac CPU generation reported by the team |
 | Backend CLI | Local object image | Absolute path to a genuine generated `.glb` | SF3D or TripoSR selectable |
+| Colab notebook + manual upload | Uploaded sketch and optional prompt | Refined PNG to download, then upload into Gradio for SF3D | Notebook included; Colab inference not verified here |
 | Experimental sketch CLI | Saved sketch image and optional appearance prompt | Refined PNG, then generated `.glb` | Integration mock-tested; actual MPS inference pending |
 
 Use a clear photo with the full object visible, a simple background and some margin. Hidden surfaces are inferred, not measured. Poor silhouettes, thin structures, occlusion and complex scenes can produce distorted results. The implemented export is GLB; OBJ export is not provided. SF3D includes UVs, textures and materials; the current TripoSR path exports vertex colors.
