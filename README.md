@@ -4,6 +4,12 @@ Sketch2Shape AI turns a single object image into a downloadable 3D asset. The cu
 
 **Submission status:** the team reports real SF3D CPU inference on an Apple Silicon Mac M4, with textured GLB output. The reported generation time is approximately 97 seconds on a 16 GB machine. That local result has not been independently reproduced in the cloud. The current web interface supports **image upload only**; it has no drawing canvas or prompt editor. The optional sketch CLI is implemented and mock-tested, but real Mac MPS sketch inference is unverified. If both drawing and upload are mandatory for judging, the current interface does not meet the drawing requirement.
 
+# Project Documentation + User Manual + Input-Output : 
+https://drive.google.com/file/d/1NItNKfc1yquhOGevg3Nbyl4EGPPBFeha/view?usp=sharing
+
+# Youtube Video :
+https://youtu.be/2zDlo0yXW7M
+
 ## Sketch-to-image notebook (Google Colab)
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Souravdevsworld/ml-project-techzephyr/blob/main/notebooks/Sketch2Shape_Basic_Colab.ipynb)
