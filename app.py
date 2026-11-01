@@ -215,38 +215,119 @@ def finish_photo(session):
 
 
 CSS = """
-body, .gradio-container { background: #090d17 !important; color: #e8edf7 !important; }
-.gradio-container { max-width: 1320px !important; margin: auto; }
-#hero { padding: 34px 12px 24px; }
-#hero h1 { font-size: clamp(32px, 5vw, 52px); letter-spacing: -2px; color: #f3f6ff; }
-#hero p { color: #a5b4cc; max-width: 680px; font-size: 16px; }
-.eyebrow { color: #8cf4d0; font-size: 12px; letter-spacing: 3px; }
-.panel { background: #111827 !important; border: 1px solid #28344b !important; border-radius: 18px !important; padding: 20px !important; }
-#generate { background: linear-gradient(110deg, #60e3bc, #6cafff) !important; color: #071522 !important; font-weight: 700; border: 0; min-height: 52px; }
-#status { border-left: 3px solid #60e3bc; padding: 12px; background: #101d2c; border-radius: 6px; }
-footer { display: none !important; }
+:root { color-scheme: dark; }
+body, .gradio-container { background: #0b100f !important; color: #e8eee9 !important; }
+.gradio-container { width:100% !important; max-width: 1280px !important; margin: auto !important; padding: 0 36px 28px !important;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif !important;
+    --body-text-color: #e8eee9; --body-text-color-subdued: #93a69b;
+    --block-background-fill: #121a16; --background-fill-primary: #121a16;
+    --background-fill-secondary: #18221c; --border-color-primary: #2a382e;
+    --block-label-background-fill: #18221c; --block-label-text-color: #b9c9be; }
+.gradio-container .main { padding:0 !important; }
+.gradio-container .html-container .prose { padding:0 !important; max-width:none !important; }
+.gradio-container .prose, .gradio-container .prose p { color: #93a69b; }
+.studio-nav { display:flex; align-items:center; justify-content:space-between; padding:26px 0; border-bottom:1px solid #253128; gap:20px; }
+.brand { display:flex; align-items:center; gap:12px; color:#f0f5ed; font-size:20px; font-weight:650; letter-spacing:-.7px; }
+.brand svg { color:#c3ef8e; width:30px; height:30px; }
+.brand small { color:#8d9c91; font-weight:400; }
+.nav-right { display:flex; gap:24px; align-items:center; font-size:12px; color:#8e9e92; }
+.nav-right a { color:#d2ddcf; text-decoration:none; }
+.nav-right a:hover { color:#c3ef8e; }
+.nav-tag { display:flex; align-items:center; gap:7px; border:1px solid #344332; padding:7px 11px; border-radius:30px; }
+.nav-tag i { width:5px; height:5px; border-radius:50%; background:#c3ef8e; }
+#hero.shader-hero { padding:48px 36px 44px; margin:20px 0 4px; border-radius:20px; border:1px solid #2b3c2e;
+    background:radial-gradient(ellipse at 90% 70%,#263e2b,#101a15 65%); }
+#hero [data-shader-root] { opacity:.24; }
+#hero::after { background:linear-gradient(90deg,#101a15f5,#101a1566); }
+.hero-kicker { display:flex; align-items:center; gap:10px; color:#bdd2aa; font:500 10px/1.5 ui-monospace,monospace; letter-spacing:2px; }
+.hero-kicker span { height:1px; width:24px; background:#a5c981; }
+#hero h1 { margin:20px 0 18px; color:#edf4e9; font-size:clamp(38px,5.4vw,66px); font-weight:500; line-height:1.04; letter-spacing:-3.5px; }
+#hero h1 em { font-family:Georgia,serif; font-weight:400; color:#c3ef8e; }
+#hero p { max-width:430px; color:#a3b6a6; font-size:14px; line-height:1.7; margin:0; }
+.hero-meta { display:flex; flex-wrap:wrap; gap:18px; margin-top:26px; color:#b1c1ae; font:10px/1.5 ui-monospace,monospace; letter-spacing:.6px; }
+.hero-meta span::before { content:'+'; color:#c3ef8e; margin-right:6px; }
+.workspace-heading { display:flex; align-items:center; justify-content:space-between; margin:24px 0 12px; gap:12px; }
+.workspace-heading h2 { margin:0; color:#e9f0e5; font-size:17px; font-weight:500; letter-spacing:-.4px; }
+.workspace-heading p { margin:0; color:#809184; font:10px/1.5 ui-monospace,monospace; }
+#workspace { gap:18px !important; }
+#source-panel, #viewer-panel { background:#121a16 !important; border:1px solid #2a382e !important; border-radius:16px !important; padding:20px !important; gap:14px !important; }
+.panel-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.panel-top h3 { color:#e6eee1; font-size:14px; font-weight:500; margin:0; display:flex; align-items:center; gap:10px; }
+.step-index { color:#9eaf98; font:10px ui-monospace,monospace; padding:5px 6px; border:1px solid #394733; border-radius:5px; }
+.panel-top small { color:#9eaf98; font:9px ui-monospace,monospace; letter-spacing:1px; }
+.panel-copy { color:#889e8d; font-size:12px; line-height:1.6; margin:0; }
+#image-upload { background:#0e1611 !important; border:1px dashed #42513c !important; border-radius:12px !important; overflow:hidden; }
+#image-upload button { color:#b1c4aa; }
+#image-upload .upload-text { color:#bdcdb6 !important; font-size:13px; }
+#image-upload .wrap { background:transparent !important; }
+#image-upload img { object-fit:contain; }
+#generate { background:#c3ef8e !important; color:#17250e !important; font-size:13px !important; font-weight:650 !important; border:1px solid #c3ef8e !important; border-radius:10px !important; min-height:50px; box-shadow:0 4px 20px #a2d57b0c; transition:background .2s,transform .2s; }
+#generate:hover:not(:disabled) { background:#d5ffa3 !important; transform:translateY(-1px); }
+#generate:disabled { opacity:.55; cursor:wait; }
+.input-note { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; color:#80937e; font-size:10px; line-height:1.6; }
+.input-note a { color:#bed89f; text-decoration:none; border-bottom:1px solid #46563b; }
+#model-viewer { border:1px solid #2a382e !important; border-radius:12px !important; background-color:#0b120e !important;
+    background-image:radial-gradient(#32433570 .7px,transparent .7px); background-size:18px 18px; overflow:hidden; }
+#status { border:1px solid #34432f; padding:12px 14px !important; background:#172114; border-radius:9px; min-height:44px; }
+#status p { color:#c1d3b2 !important; font-size:11px; line-height:1.6; margin:0; }
+#download { background:#22351c !important; color:#d0eabc !important; border:1px solid #49633a !important; border-radius:9px !important; min-height:44px; font-size:12px; }
+.studio-footer { border-top:1px solid #253128; padding:22px 0 8px; margin-top:26px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; color:#81917f; font:10px/1.6 ui-monospace,monospace; }
+.studio-footer strong { color:#b4c4a9; font-weight:400; }
+a:focus-visible, button:focus-visible { outline:2px solid #c3ef8e !important; outline-offset:4px; }
+footer { display:none !important; }
+@media (max-width:700px) {
+ .gradio-container { padding:0 16px 20px !important; }
+ .studio-nav { padding:20px 0; } .brand { font-size:17px; } .brand small,.nav-tag { display:none; }
+ #hero.shader-hero { padding:32px 22px; } #hero h1 { letter-spacing:-2px; }
+ #source-panel, #viewer-panel { padding:16px !important; min-width:0 !important; }
+ #workspace { flex-direction:column !important; }
+ #source-panel, #viewer-panel { width:100% !important; box-sizing:border-box; }
+ .workspace-heading p { display:none; } .hero-meta { gap:10px; font-size:9px; }
+}
+@media (prefers-reduced-motion:reduce) { #generate { transition:none; } #generate:hover { transform:none; } }
 """
+
+
+def studio_html(markup):
+    """Style decorative HTML inside Gradio's isolated HTML component."""
+    return gr.HTML(markup, css_template=CSS, padding=False)
 
 
 def build_app():
     with gr.Blocks(title="Sketch2Shape AI") as demo:
         session = gr.State(new_session)
-        gr.HTML('''<section id="hero" class="shader-hero"><div data-shader-root aria-hidden="true"></div><span class="eyebrow">SKETCH2SHAPE AI / CREATIVE LAB</span>
-        <h1>A single image.<br>A whole new dimension.</h1>
-        <p>Upload a clear photo of your object and turn it into a 3D model you can explore.</p></section>''',
-            css_template=(ASSETS / "shader-animation.css").read_text(),
-            js_on_load=(ASSETS / "shader-animation.js").read_text(),
-        )
-        with gr.Row(equal_height=True):
-            with gr.Column(scale=1, min_width=320, elem_classes="panel"):
-                gr.Markdown("### 01 / Upload your image\nUse a clear photo of one object, with the full object visible.")
-                upload = gr.Image(label="Upload PNG or JPG", type="pil", sources=["upload"], height=370)
-                generate_button = gr.Button("Generate 3D  →", variant="primary", elem_id="generate")
-            with gr.Column(scale=1, min_width=320, elem_classes="panel"):
-                gr.Markdown("### 02 / Explore your creation\nDrag to orbit · Scroll to zoom")
-                viewer = gr.Model3D(label="3D workspace", height=460, clear_color=(0.04, 0.06, 0.1, 1))
-                status = gr.Markdown("Ready when you are. Upload an image to begin.", elem_id="status")
-                download = gr.DownloadButton("Download GLB", visible=False)
+        studio_html('<nav class="studio-nav" aria-label="Studio"><div class="brand">'
+            '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">'
+            '<path d="M16 2 29 9.5v13L16 30 3 22.5v-13L16 2Z M3 9.5l13 7.5 13-7.5 M16 17v13 M9.5 5.75l13 7.5v13"/></svg>'
+            'Sketch2Shape <small>/ studio</small></div><div class="nav-right">'
+            '<span class="nav-tag"><i></i> IMAGE TO 3D</span>'
+            '<a href="https://github.com/Souravdevsworld/ml-project-techzephyr" target="_blank" rel="noopener noreferrer">GitHub</a></div></nav>')
+        gr.HTML('''<section id="hero" class="shader-hero"><div data-shader-root aria-hidden="true"></div>
+        <div class="hero-kicker"><span></span> A NEW PERSPECTIVE ON YOUR IDEAS</div>
+        <h1>One image.<br>Infinite <em>possibility.</em></h1>
+        <p>Give your ideas another dimension. Turn an object image into a textured 3D model, ready to explore and make your own.</p>
+        <div class="hero-meta"><span>IMAGE-TO-3D RECONSTRUCTION</span><span>TEXTURED GLB EXPORT</span></div></section>''',
+            css_template=(ASSETS / "shader-animation.css").read_text() + CSS,
+            js_on_load=(ASSETS / "shader-animation.js").read_text(), padding=False)
+        studio_html('<div class="workspace-heading"><h2>Your creative workspace</h2>'
+                    '<p>01 / UPLOAD &nbsp; → &nbsp; 02 / GENERATE &nbsp; → &nbsp; 03 / EXPLORE</p></div>')
+        with gr.Row(equal_height=True, elem_id="workspace"):
+            with gr.Column(scale=4, min_width=290, elem_classes="panel", elem_id="source-panel"):
+                studio_html('<div class="panel-top"><h3><span class="step-index">01</span> Source image</h3><small>PNG / JPG</small></div>'
+                            '<p class="panel-copy">Start with a clear photo of one object.<br>A simple background gives your idea room to shine.</p>')
+                upload = gr.Image(label="Upload PNG or JPG", show_label=False, type="pil", sources=["upload"], height=310, elem_id="image-upload")
+                generate_button = gr.Button("Generate 3D", variant="primary", elem_id="generate")
+                studio_html('<div class="input-note"><span>Have a sketch instead?</span>'
+                    '<a href="https://colab.research.google.com/github/Souravdevsworld/ml-project-techzephyr/blob/main/notebooks/Sketch2Shape_Basic_Colab.ipynb" '
+                    'target="_blank" rel="noopener noreferrer">Create an image in Colab</a></div>')
+            with gr.Column(scale=6, min_width=290, elem_classes="panel", elem_id="viewer-panel"):
+                studio_html('<div class="panel-top"><h3><span class="step-index">02</span> The next dimension</h3><small>3D VIEWPORT</small></div>'
+                            '<p class="panel-copy">Your model will appear here. Drag to orbit · Scroll to zoom.</p>')
+                viewer = gr.Model3D(label="Interactive 3D model", show_label=False, height=370, clear_color=(0.043, 0.071, 0.055, 0), elem_id="model-viewer")
+                status = gr.Markdown("Ready to create. Upload an image, then generate your model.", elem_id="status")
+                download = gr.DownloadButton("Download model · GLB", visible=False, elem_id="download")
+        studio_html('<div class="studio-footer"><span><strong>SKETCH2SHAPE AI</strong> &nbsp; / &nbsp; TECHZEPHYR 4.0</span>'
+                    '<span>Reconstructed with SF3D · Powered by Stability AI</span></div>')
         submission = generate_button.click(
             submit_photo, [upload, session], [session, status, generate_button],
             queue=False, trigger_mode="once", show_progress="hidden")
